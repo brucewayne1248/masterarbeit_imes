@@ -1,27 +1,19 @@
 % Encoding: UTF-8
 
-
 @Article{Kober2013,
-  Title                    = {Reinforcement learning in robotics: A survey},
-  Author                   = {Jens Kober and J. Andrew Bagnell and Jan Peters},
-  Journal                  = {The International Journal of Robotics Research},
-  Year                     = {2013},
-  Number                   = {11},
-  Pages                    = {1238-1274},
-  Volume                   = {32},
-
-  Abstract                 = { Reinforcement learning offers to robotics a framework and set of tools for the design of sophisticated and hard-to-engineer behaviors. Conversely, the challenges of robotic problems provide both inspiration, impact, and validation for developments in reinforcement learning. The relationship between disciplines has sufficient promise to be likened to that between physics and mathematics. In this article, we attempt to strengthen the links between the two research communities by providing a survey of work in reinforcement learning for behavior generation in robots. We highlight both key challenges in robot reinforcement learning as well as notable successes. We discuss how contributions tamed the complexity of the domain and study the role of algorithms, representations, and prior knowledge in achieving these successes. As a result, a particular focus of our paper lies on the choice between model-based and model-free as well as between value-function-based and policy-search methods. By analyzing a simple problem in some detail we demonstrate how reinforcement learning approaches may be profitably applied, and we note throughout open questions and the tremendous potential for future research. },
-  Doi                      = {10.1177/0278364913495721},
-  Eprint                   = { 
- https://doi.org/10.1177/0278364913495721
- 
-},
-  Owner                    = {andi},
-  Timestamp                = {2018.03.26},
-  Url                      = { 
- https://doi.org/10.1177/0278364913495721
- 
-}
+  author    = {Jens Kober and J. Andrew Bagnell and Jan Peters},
+  title     = {Reinforcement learning in robotics: A survey},
+  journal   = {The International Journal of Robotics Research},
+  year      = {2013},
+  volume    = {32},
+  number    = {11},
+  pages     = {1238-1274},
+  abstract  = { Reinforcement learning offers to robotics a framework and set of tools for the design of sophisticated and hard-to-engineer behaviors. Conversely, the challenges of robotic problems provide both inspiration, impact, and validation for developments in reinforcement learning. The relationship between disciplines has sufficient promise to be likened to that between physics and mathematics. In this article, we attempt to strengthen the links between the two research communities by providing a survey of work in reinforcement learning for behavior generation in robots. We highlight both key challenges in robot reinforcement learning as well as notable successes. We discuss how contributions tamed the complexity of the domain and study the role of algorithms, representations, and prior knowledge in achieving these successes. As a result, a particular focus of our paper lies on the choice between model-based and model-free as well as between value-function-based and policy-search methods. By analyzing a simple problem in some detail we demonstrate how reinforcement learning approaches may be profitably applied, and we note throughout open questions and the tremendous potential for future research. },
+  doi       = {10.1177/0278364913495721},
+  eprint    = {https://doi.org/10.1177/0278364913495721},
+  owner     = {andi},
+  timestamp = {2018.03.26},
+  url       = {https://doi.org/10.1177/0278364913495721},
 }
 
 @Article{Li2017,
