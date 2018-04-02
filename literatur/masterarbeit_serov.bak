@@ -47,13 +47,14 @@
 }
 
 @InProceedings{Kakade2002,
-  author    = {Kakade, Sham M},
-  title     = {A natural policy gradient},
-  booktitle = {Advances in neural information processing systems},
-  year      = {2002},
-  pages     = {1531--1538},
-  owner     = {andi},
-  timestamp = {2018.03.27},
+  author        = {Kakade, Sham M},
+  title         = {A natural policy gradient},
+  booktitle     = {Advances in neural information processing systems},
+  year          = {2002},
+  pages         = {1531--1538},
+  __markedentry = {[andi:]},
+  owner         = {andi},
+  timestamp     = {2018.03.27},
 }
 
 @Article{Kober2013,
@@ -75,7 +76,7 @@
 @Article{Mnih2016,
   author        = {Volodymyr Mnih and Adrià Puigdomènech Badia and Mehdi Mirza and Alex Graves and Timothy P. Lillicrap and Tim Harley and David Silver and Koray Kavukcuoglu},
   title         = {Asynchronous Methods for Deep Reinforcement Learning},
-  __markedentry = {[andi:]},
+  __markedentry = {[andi:6]},
   abstract      = {We propose a conceptually simple and lightweight framework for deep reinforcement learning that uses asynchronous gradient descent for optimization of deep neural network controllers. We present asynchronous variants of four standard reinforcement learning algorithms and show that parallel actor-learners have a stabilizing effect on training allowing all four methods to successfully train neural network controllers. The best performing method, an asynchronous variant of actor-critic, surpasses the current state-of-the-art on the Atari domain while training for half the time on a single multi-core CPU instead of a GPU. Furthermore, we show that asynchronous actor-critic succeeds on a wide variety of continuous motor control problems as well as on a new task of navigating random 3D mazes using a visual input.},
   date          = {2016-02-04},
   eprint        = {1602.01783v2},
@@ -86,21 +87,6 @@
   keywords      = {cs.LG},
   owner         = {andi},
   timestamp     = {2018.03.28},
-}
-
-@Article{Duan2016,
-  author        = {Yan Duan and Xi Chen and Rein Houthooft and John Schulman and Pieter Abbeel},
-  title         = {Benchmarking Deep Reinforcement Learning for Continuous Control},
-  __markedentry = {[andi:6]},
-  abstract      = {Recently, researchers have made significant progress combining the advances in deep learning for learning feature representations with reinforcement learning. Some notable examples include training agents to play Atari games based on raw pixel data and to acquire advanced manipulation skills using raw sensory inputs. However, it has been difficult to quantify progress in the domain of continuous control due to the lack of a commonly adopted benchmark. In this work, we present a benchmark suite of continuous control tasks, including classic tasks like cart-pole swing-up, tasks with very high state and action dimensionality such as 3D humanoid locomotion, tasks with partial observations, and tasks with hierarchical structure. We report novel findings based on the systematic evaluation of a range of implemented reinforcement learning algorithms. Both the benchmark and reference implementations are released at https://github.com/rllab/rllab in order to facilitate experimental reproducibility and to encourage adoption by other researchers.},
-  date          = {2016-04-22},
-  eprint        = {1604.06778v3},
-  eprintclass   = {cs.LG},
-  eprinttype    = {arXiv},
-  file          = {online:http\://arxiv.org/pdf/1604.06778v3:PDF},
-  keywords      = {cs.LG, cs.AI, cs.RO},
-  owner         = {andi},
-  timestamp     = {2018.04.02},
 }
 
 @Comment{jabref-meta: databaseType:bibtex;}

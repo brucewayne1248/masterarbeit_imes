@@ -1,0 +1,67 @@
+% Encoding: UTF-8
+
+@Article{Kober2013,
+  author    = {Jens Kober and J. Andrew Bagnell and Jan Peters},
+  title     = {Reinforcement learning in robotics: A survey},
+  journal   = {The International Journal of Robotics Research},
+  year      = {2013},
+  volume    = {32},
+  number    = {11},
+  pages     = {1238-1274},
+  abstract  = { Reinforcement learning offers to robotics a framework and set of tools for the design of sophisticated and hard-to-engineer behaviors. Conversely, the challenges of robotic problems provide both inspiration, impact, and validation for developments in reinforcement learning. The relationship between disciplines has sufficient promise to be likened to that between physics and mathematics. In this article, we attempt to strengthen the links between the two research communities by providing a survey of work in reinforcement learning for behavior generation in robots. We highlight both key challenges in robot reinforcement learning as well as notable successes. We discuss how contributions tamed the complexity of the domain and study the role of algorithms, representations, and prior knowledge in achieving these successes. As a result, a particular focus of our paper lies on the choice between model-based and model-free as well as between value-function-based and policy-search methods. By analyzing a simple problem in some detail we demonstrate how reinforcement learning approaches may be profitably applied, and we note throughout open questions and the tremendous potential for future research. },
+  doi       = {10.1177/0278364913495721},
+  eprint    = {https://doi.org/10.1177/0278364913495721},
+  owner     = {andi},
+  timestamp = {2018.03.26},
+  url       = {https://doi.org/10.1177/0278364913495721},
+}
+
+@Article{Li2017,
+  Title                    = {Deep Reinforcement Learning: An Overview},
+  Author                   = {Yuxi Li},
+  Year                     = {2017},
+
+  Month                    = jan,
+
+  __markedentry            = {[andi:6]},
+  Abstract                 = {We give an overview of recent exciting achievements of deep reinforcement learning (RL). We discuss six core elements, six important mechanisms, and twelve applications. We start with background of machine learning, deep learning and reinforcement learning. Next we discuss core RL elements, including value function, in particular, Deep Q-Network (DQN), policy, reward, model, planning, and exploration. After that, we discuss important mechanisms for RL, including attention and memory, unsupervised learning, transfer learning, multi-agent RL, hierarchical RL, and learning to learn. Then we discuss various applications of RL, including games, in particular, AlphaGo, robotics, natural language processing, including dialogue systems, machine translation, and text generation, computer vision, neural architecture design, business management, finance, healthcare, Industry 4.0, smart grid, intelligent transportation systems, and computer systems. We mention topics not reviewed yet, and list a collection of RL resources. After presenting a brief summary, we close with discussions.},
+  Eprint                   = {1701.07274},
+  Oai2identifier           = {1701.07274},
+  Owner                    = {andi},
+  Timestamp                = {2018.03.26}
+}
+
+@InProceedings{Ng1999,
+  Title                    = {Policy Invariance Under Reward Transformations: Theory and Application to Reward Shaping},
+  Author                   = {Ng, Andrew Y. and Harada, Daishi and Russell, Stuart J.},
+  Booktitle                = {Proceedings of the Sixteenth International Conference on Machine Learning},
+  Year                     = {1999},
+
+  Address                  = {San Francisco, CA, USA},
+  Pages                    = {278--287},
+  Publisher                = {Morgan Kaufmann Publishers Inc.},
+  Series                   = {ICML '99},
+
+  Acmid                    = {657613},
+  ISBN                     = {1-55860-612-2},
+  Numpages                 = {10},
+  Url                      = {http://dl.acm.org/citation.cfm?id=645528.657613}
+}
+
+@Article{Mnih2016,
+  author        = {Volodymyr Mnih and Adrià Puigdomènech Badia and Mehdi Mirza and Alex Graves and Timothy P. Lillicrap and Tim Harley and David Silver and Koray Kavukcuoglu},
+  title         = {Asynchronous Methods for Deep Reinforcement Learning},
+  __markedentry = {[andi:6]},
+  abstract      = {We propose a conceptually simple and lightweight framework for deep reinforcement learning that uses asynchronous gradient descent for optimization of deep neural network controllers. We present asynchronous variants of four standard reinforcement learning algorithms and show that parallel actor-learners have a stabilizing effect on training allowing all four methods to successfully train neural network controllers. The best performing method, an asynchronous variant of actor-critic, surpasses the current state-of-the-art on the Atari domain while training for half the time on a single multi-core CPU instead of a GPU. Furthermore, we show that asynchronous actor-critic succeeds on a wide variety of continuous motor control problems as well as on a new task of navigating random 3D mazes using a visual input.},
+  date          = {2016-02-04},
+  eprint        = {1602.01783v2},
+  eprintclass   = {cs.LG},
+  eprinttype    = {arXiv},
+  file          = {online:http\://arxiv.org/pdf/1602.01783v2:PDF},
+  journaltitle  = {ICML 2016},
+  keywords      = {cs.LG},
+  owner         = {andi},
+  timestamp     = {2018.03.28},
+}
+
+@Comment{jabref-meta: databaseType:bibtex;}
