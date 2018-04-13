@@ -365,12 +365,12 @@ myclass.reset(l11=0.1, l12=0.1, l13=0.1, l21=0.2, l22=0.2, l23=0.2)
 #myclass.render()
 #mypause(2)
 #
-for i  in range(20):
+for i  in range(50):
    step_size = 0.001
 #   myclass.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size),
 #                np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
-#   myclass.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size),
-#                np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
-   myclass.step(0.0, 0.0, 0.0, 0.001, 0.0, 0.0)
+   myclass.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size),
+                np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
+#   myclass.step(0.0, 0.0, 0.0, 0.001, 0.0, 0.0)
 #   print(myclass.lenghts1, myclass.lenghts2)
-   myclass.render(pause=0.25, frame="frenet")
+   myclass.render(pause=0.25, frame="bishop")

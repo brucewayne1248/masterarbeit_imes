@@ -8,6 +8,14 @@ from mpl_toolkits.mplot3d import Axes3D
 # https://stackoverflow.com/questions/22867620/putting-arrowheads-on-vectors-in-matplotlibs-3d-plot?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
 from matplotlib.patches import FancyArrowPatch # used to create Arrow3D
 from mpl_toolkits.mplot3d import proj3d # used to get 3D arrows to work
+# video file
+# import cv2 by deleting kinetic python path from sys (else error)
+import sys
+try:
+   sys.path.remove("/opt/ros/kinetic/lib/python2.7/dist-packages")
+except :
+   print("kinetic path already deleted")
+import cv2
 
 class Arrow3D(FancyArrowPatch):
     def __init__(self, xs, ys, zs, *args, **kwargs):
@@ -48,6 +56,7 @@ class ForwardKinematicsOneSegment():
       self.lmax = lmax
       # define variables to be used after environment is reset
       self.l1 = None; self.l2 = None; self.l3 = None;
+      self.base = np.array([0.0, 0.0, 0.0, 1]) # base vector used for transformations
       self.lenghts = None # array containing tendon lenghts [l1, l2, l3]
       self.lsum = None # sum of all tendons
       self.expr = None # useful expression for l1²+l2²+l3²-l1*l2-l1*l2-l2*l3
@@ -70,6 +79,8 @@ class ForwardKinematicsOneSegment():
       self.ax = None
       self.scatter = None
       self.arrow_len = 0.025 # arrow length of coordinate frames
+      self.frame = 1000
+      self.fig_name = None
 
    def reset(self, l1=None, l2=None, l3=None):
       """ resets the tendon lengths and updates other variables accordingly """
@@ -97,6 +108,7 @@ class ForwardKinematicsOneSegment():
       """ updates all necessary variables after changing tendon lengths """
       self.lsum = self.l1+self.l2+self.l3
       self.expr = self.l1**2+self.l2**2+self.l3**2-self.l1*self.l2-self.l1*self.l3-self.l2*self.l3
+      self.lenghts = np.array([self.l1, self.l2, self.l3])
       # in rare cases self.expr turns out to be infinitely small negative number ~ 0
       # in these cases self.expr has to be set to 0
       if self.expr > -1e-17 and self.expr < 0.0:
@@ -108,7 +120,7 @@ class ForwardKinematicsOneSegment():
       self.T01_frenet = self.transformation_matrix_frenet(self.kappa, self.phi, self.seg_len)
       self.T01_bishop = self.transformation_matrix_bishop(self.kappa, self.phi, self.seg_len)
       self.configuration_space = np.array([self.kappa, self.phi, self.seg_len])
-      self.tip_vec = self.tip_position(self.kappa)
+      self.tip_vec = np.matmul(self.T01_bishop, self.base)[0:3]
       self.normal_vec_frenet = self.T01_frenet[0:3, 0]
       self.binormal_vec_frenet = self.T01_frenet[0:3, 1]
       self.tangent_vec_frenet = self.T01_frenet[0:3, 2]
@@ -122,11 +134,6 @@ class ForwardKinematicsOneSegment():
          return self.lsum / 3
       else:
          return self.n*self.d*self.lsum / (sqrt(self.expr)) * asin(sqrt(self.expr)/(3*self.n*self.d))
-
-   def tip_position(self, kappa):
-      """ returns the tip position in cartesian coordiantes [x, y, z] [m] """
-      # return T01 * x_0
-      return np.matmul(self.T01_bishop, np.array([0.0, 0.0, 0.0, 1]))[0:3]
 
    def transformation_matrix_frenet(self, kappa, phi, s):
       """ returns a 4x4 SE3 frenet transformation matrix """
@@ -159,7 +166,7 @@ class ForwardKinematicsOneSegment():
                           [0, 0, 0, 1]])
 
    def get_points_on_arc(self, kappa, num_points):
-      """ returns np.array [num_points, 3] arc points [x(s), y(s), z(s)] [m] """
+      """ returns np.array([num_points, 3]) of arc points [x(s), y(s), z(s)] for plot [m] """
       points = np.zeros((num_points, 3))
       s = np.linspace(0, self.seg_len, num_points)
       for i in range(num_points):
@@ -167,21 +174,35 @@ class ForwardKinematicsOneSegment():
                                 np.array([0.0, 0.0, 0.0, 1]))[0:3]
       return points
 
-   def render(self, pause=0.05, frame="bishop"):
-      """ renders the 3d plot of the robot's arc, pause (float) determines plot speed"""
+   def arc_params_to_tendon_lenghts(self, kappa, phi, s):
+      if kappa == 0:
+         l1 = s
+         l2 = s
+         l3 = s
+      else:
+         l1 = 2*self.n*sin(kappa*s/(2*self.n))*(1/kappa-self.d*sin(phi))
+         l2 = 2*self.n*sin(kappa*s/(2*self.n))*(1/kappa+self.d*sin(np.pi/3+phi))
+         l3 = 2*self.n*sin(kappa*s/(2*self.n))*(1/kappa-self.d*cos(np.pi/6+phi))
+#      return np.array([l1, l2, l3])
+      return l1, l2, l3
+
+   def render(self, pause=0.05, frame="bishop", save_frames=False):
+      """ renders the 3d plot of the robot's arc, pause (float) determines how long each frame is shown """
       if self.fig == None:
          self.init_render()
 
       points = self.get_points_on_arc(self.kappa, 100)
       while self.ax.lines:
          self.ax.lines.pop() # make sure only current arc of robot is plotted
-      plot = self.ax.plot(points[:,0], points[:,1], points[:,2], label="segment 1", c="black", linewidth=4)
+      self.ax.plot(points[:,0], points[:,1], points[:,2], label="segment 1", c="black", linewidth=4)
       self.ax.legend()
 
+      # base frame is always included in plot (first 3 artists)
+      # remaining arrows are deleted and current axes are added
       while len(self.ax.artists) > 3:
-         self.ax.artists.pop() # make sure at every iteration that the arrows of the base frame are always included in the plot
-                               # and only current coordinate frame of frenet frame is included which will be added with the following lines
-      if frame == "frenet": # add dynamic coordinate frenet or bishop frame in plot
+         self.ax.artists.pop()
+      # add current frenet or bishop coordinate frame in plot
+      if frame == "frenet":
          normal_vec = self.normal_vec_frenet
          tangent_vec = self.tangent_vec_frenet
          binormal_vec = self.binormal_vec_frenet
@@ -189,6 +210,7 @@ class ForwardKinematicsOneSegment():
          normal_vec = self.normal_vec_bishop
          tangent_vec = self.tangent_vec_bishop
          binormal_vec = self.binormal_vec_bishop
+
       atangent = Arrow3D([self.tip_vec[0], self.tip_vec[0]+self.arrow_len*tangent_vec[0]],
                          [self.tip_vec[1], self.tip_vec[1]+self.arrow_len*tangent_vec[1]],
                          [self.tip_vec[2], self.tip_vec[2]+self.arrow_len*tangent_vec[2]],
@@ -205,10 +227,16 @@ class ForwardKinematicsOneSegment():
       self.ax.add_artist(anormal)
       self.ax.add_artist(abinormal)
       mypause(pause)
+      self.fig.add_axes
+
+      if save_frames == True:
+         self.fig.savefig("figures/frame"+str(self.frame)[1:]+".png")
+         self.frame += 1
 
    def init_render(self):
+      """ sets up 3d plot """
       plt.ion() # interactive plot mode, panning, zooming enabled
-      self.fig = plt.figure(figsize=(10,7))
+      self.fig = plt.figure(figsize=(9.5,7.2))
       self.ax = self.fig.add_subplot(111, projection="3d") # attach z-axis to plot
       # set axe limits and labels
       self.ax.set_xlim([-self.lmax, self.lmax])
@@ -232,7 +260,7 @@ myclass = ForwardKinematicsOneSegment(lmin=0.075, lmax=0.125, d=0.01, n=5)
 myclass.reset(l1=0.1, l2=0.1, l3=0.1)
 
 for i  in range(20):
+   myclass.render(pause=0.25, frame="bishop")
    step_size = 0.01
 #   myclass.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
    myclass.step(0.001, 0.0, 0.0)
-   myclass.render(pause=1, frame="frenet")
