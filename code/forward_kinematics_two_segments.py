@@ -3,13 +3,12 @@ from math import sqrt, asin, atan2, cos, sin
 # libraries needed to render continuum robot
 import matplotlib
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-#import mpl_toolkits.mplot3d.axes3d as p3
-# https://stackoverflow.com/questions/22867620/putting-arrowheads-on-vectors-in-matplotlibs-3d-plot?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+#from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.patches import FancyArrowPatch # used to create Arrow3D
 from mpl_toolkits.mplot3d import proj3d # used to get 3D arrows to work
 
 class Arrow3D(FancyArrowPatch):
+    """ used to create arrows in 3d plot """
     def __init__(self, xs, ys, zs, *args, **kwargs):
         FancyArrowPatch.__init__(self, (0,0), (0,0), *args, **kwargs)
         self._verts3d = xs, ys, zs
@@ -32,7 +31,7 @@ def mypause(interval):
          canvas.start_event_loop(interval)
          return
 
-class ForwardKinematicsOneSegment():
+class ForwardKinematicsTwoSegments():
    """
    class handling the forward kinematics of a
    single segment tendon driven continuum robot
@@ -57,8 +56,8 @@ class ForwardKinematicsOneSegment():
       self.lenghts1 = None # array containing tendon lenghts [l11, l12, l13]
       self.lenghts2 = None # array containing tendon lenghts [l21, l22, l23]
       # expressions used to shorten calculations to come
-      self.lsum1 = None # sum of segment 1 tendon lengths
-      self.lsum2 = None # sum of effective segment 2 tendon lengths
+      self.lsum1 = None # sum of segment 1 tendon lengths l11+l12+l13
+      self.lsum2 = None # sum of effective segment 2 tendon lengths dl21+dl22+dl23
       self.expr1 = None # useful expression for l11²+l12²+l13²-l11*l12-l11*l21-l12*l13
       self.expr2 = None # useful expression for dl21²+dl22²+dl23²-dl21*dl22-dl21*dl21-dl22*dl23
       # further variables defining continuum robot's features
@@ -72,33 +71,33 @@ class ForwardKinematicsOneSegment():
       self.seg_len2 = None # segment 2 total arc length [m]
       self.configuration_space1 = None # segment 1 array containing [kappa1, phi1, seg_len1]
       self.configuration_space2 = None # segment 2 array containing [kappa2, phi2, seg_len2]
+      # transformation matrices
       self.T01_frenet = None # frenet transformation matrix from base to segment 1 tip
       self.T12_frenet = None # frenet transformation matrix from segment 1 tip to segment 2 tip
       self.T02_frenet = None # frenet transformation matrix from base to segment 2 tip
       self.T01_bishop = None # bishop transformation matrix from base to segment 1 tip
-      self.T01_bishop = None # bishop transformation matrix from segment 1 tip to segment 2 tip
-      self.T12_bishop = None # transformation matrix form segment 1 tip to segment 2 tip
+      self.T12_bishop = None # bishop transformation matrix from segment 1 tip to segment 2 tip
       self.T02_bishop = None # bishop transformation matrix from base to segment 2 tip
+      # Frenet and Bishop coordinate frame vectors
       self.tangent_vec_frenet1 = None # segment 1 tip Frenet tangent vector
       self.tangent_vec_frenet2 = None # segment 2 Frenet tangent vector
       self.normal_vec_frenet1 = None # segment 1 tip Frenet normal vector
       self.normal_vec_frenet2 = None # segment 2 tip Frenet normal vector
       self.binormal_vec_frenet1 = None # segment 1 tip Frenet binormal vector
       self.binormal_vec_frenet2 = None # segment 2 Frenet binormal vector
-
       self.tangent_vec_bishop1 = None # segment 1 tip bishop tangent vector
       self.tangent_vec_bishop2 = None # segment 2 bishop tangent vector
       self.normal_vec_bishop1 = None # segment 1 tip bishop normal vector
       self.normal_vec_bishop2 = None # segment 2 tip bishop normal vector
       self.binormal_vec_bishop1 = None # segment 1 tip bishop binormal vector
       self.binormal_vec_bishop2 = None # segment 2 bishop binormal vector
-
       self.tip_vec1 = None # segment 1 tip vector [m] [x, y, z]
       self.tip_vec2 = None # segment 2 tip vector [m] [x, y, z]
       # define plot variables
       self.fig = None
       self.ax = None
-      self.arrow_len = 0.025
+      self.frame = 1000 # used to name frames -> frame000, frame001, etc
+      self.arrow_len = 0.03
 
    def reset(self, l11=None, l12=None, l13=None, l21=None, l22=None, l23=None):
       """ resets the tendon lengths and updates other variables accordingly """
@@ -210,11 +209,11 @@ class ForwardKinematicsOneSegment():
 
    def get_seg_lengths(self):
       """ returns the current segment lengths of primary backbone [m] """
-      if self.l11 == self.l12 == self.l13:
+      if self.l11 == self.l12 == self.l13 or self.expr1 == 0:
          seg_len1 = self.lsum1 / 3
       else:
          seg_len1 = self.n*self.d*self.lsum1 / (sqrt(self.expr1)) * asin(sqrt(self.expr1)/(3*self.n*self.d))
-      if self.dl21 == self.dl22 == self.dl23:
+      if self.dl21 == self.dl22 == self.dl23 or self.expr2 == 0:
          seg_len2 = self.lsum2 / 3
       else:
          seg_len2 = self.n*self.d*self.lsum2 / (sqrt(self.expr2)) * asin(sqrt(self.expr2)/(3*self.n*self.d))
@@ -224,50 +223,28 @@ class ForwardKinematicsOneSegment():
       """ returns np.arrays [num_points, 3] arc points [x(s), y(s), z(s)] [m] """
       points1 = np.zeros((num_points, 3)) # points placeholder for segment 1
       points2 = np.zeros((num_points, 3)) # points placeholder for segment 2
-      s1 = np.linspace(0.0, self.seg_len1, num_points)
-      s2 = np.linspace(0.0, self.seg_len2, num_points)
+      s1 = np.linspace(0.0, self.seg_len1, num_points) # variable arc length 1
+      s2 = np.linspace(0.0, self.seg_len2, num_points) # variable arc length 2
 
       for i in range(num_points):
          points1[i] = np.matmul(self.transformation_matrix_bishop(self.kappa1, self.phi1, s1[i]), self.base)[0:3]
 
       for i in range(num_points):
-         T02 = np.matmul(self.T01_bishop, self.transformation_matrix_bishop(self.kappa2, self.phi2, s2[i]))
-         points2[i] = np.matmul(T02, self.base)[0:3]
+         T02_s = np.matmul(self.T01_bishop, self.transformation_matrix_bishop(self.kappa2, self.phi2, s2[i]))
+         points2[i] = np.matmul(T02_s, self.base)[0:3]
 
       return points1, points2
 
-   def get_frenet_frame(self, segment):
-      """ returns three unit vectors of the robot's tip Local Frenet Frame """
-      if segment == 1:
-         T01 = self.transformation_matrix_frenet(self.kappa1, self.phi1, self.seg_len1)
-         normal_vector = T01[0:3, 0]
-         tangent_vector = T01[0:3, 2]
-         normal_vector = np.array([cos(self.phi1)*cos(self.kappa1*self.seg_len1),
-                                   sin(self.phi1)*cos(self.kappa1*self.seg_len1),
-                                   -sin(self.kappa1*self.seg_len1)])
-         tangent_vector = np.array([cos(self.phi1)*sin(self.kappa1*self.seg_len1),
-                                    sin(self.phi1)*sin(self.kappa1*self.seg_len1),
-                                    cos(self.kappa1*self.seg_len1)])
-         binormal_vector = np.cross(tangent_vector, normal_vector)
-         return normal_vector, tangent_vector, binormal_vector
-      elif segment == 2:
-         normal_vector = np.array([cos(self.phi2)*cos(self.kappa2*self.seg_len2),
-                                   sin(self.phi2)*cos(self.kappa2*self.seg_len2),
-                                   -sin(self.kappa2*self.seg_len2)])
-         tangent_vector = np.array([cos(self.phi2)*sin(self.kappa2*self.seg_len2),
-                                    sin(self.phi2)*sin(self.kappa2*self.seg_len2),
-                                    cos(self.kappa2*self.seg_len2)])
-#         T01xT12 = np.matmul(self.transformation_matrix_frenet(self.kappa1, self.phi1, self.seg_len1),
-#                             self.transformation_matrix_frenet(self.kappa2, self.phi2, self.seg_len2))
-#         T12 = self.transformation_matrix_frenet(self.kappa2, self.phi2, self.seg_len2)
-#         normal_vector = T01xT12[0:3, 0]
-#         tangent_vector = T01xT12[0:3, 2]
-#         normal_vector = T12[0:3, 0]
-#         tangent_vector = T12[0:3, 1]
-         binormal_vector = np.cross(tangent_vector, normal_vector)
-         return normal_vector, tangent_vector, binormal_vector
+   def arc_params_to_tendon_lenghts(self, kappa, phi, s):
+      if kappa == 0:
+         l1 = s; l2 = s; l3 = s
+      else:
+         l1 = 2*self.n*sin(kappa*s/(2*self.n))*(1/kappa-self.d*sin(phi))
+         l2 = 2*self.n*sin(kappa*s/(2*self.n))*(1/kappa+self.d*sin(np.pi/3+phi))
+         l3 = 2*self.n*sin(kappa*s/(2*self.n))*(1/kappa-self.d*cos(np.pi/6+phi))
+      return l1, l2, l3
 
-   def render(self, pause=0.05, frame="bishop"):
+   def render(self, pause=0.05, frame="bishop", save_frames=False):
       """ renders the 3D plot of the robot's arc, pause (float) determines plot speed """
       if self.fig == None:
          self.init_render()
@@ -332,7 +309,13 @@ class ForwardKinematicsOneSegment():
       self.ax.add_artist(atangent2)
       self.ax.add_artist(anormal2)
       self.ax.add_artist(abinormal2)
+      # pause video without losing focus of current window
       mypause(pause)
+      # save frames of plot
+      if save_frames == True:
+         filename = "figures/frame"+str(self.frame)[1:]+".png"
+         self.fig.savefig(filename)
+         self.frame += 1
 
    def init_render(self):
       """ sets up 3D plot """
@@ -347,9 +330,12 @@ class ForwardKinematicsOneSegment():
       self.ax.set_ylabel("Y")
       self.ax.set_zlabel("Z")
       # add 3 arrows of coordinate base frame
-      ax_base = Arrow3D([0.0, self.arrow_len], [0.0, 0.0], [0.0, 0.0], arrowstyle="-|>", lw=1, mutation_scale=10, color="r")
-      ay_base = Arrow3D([0.0, 0.0], [0.0, self.arrow_len], [0.0, 0.0], arrowstyle="-|>", lw=1, mutation_scale=10, color="g")
-      az_base = Arrow3D([0.0, 0.0], [0.0, 0.0], [0.0, self.arrow_len], arrowstyle="-|>", lw=1, mutation_scale=10, color="b")
+      ax_base = Arrow3D([0.0, self.arrow_len], [0.0, 0.0], [0.0, 0.0],
+                        arrowstyle="-|>", lw=1, mutation_scale=10, color="r")
+      ay_base = Arrow3D([0.0, 0.0], [0.0, self.arrow_len], [0.0, 0.0],
+                        arrowstyle="-|>", lw=1, mutation_scale=10, color="g")
+      az_base = Arrow3D([0.0, 0.0], [0.0, 0.0], [0.0, self.arrow_len],
+                        arrowstyle="-|>", lw=1, mutation_scale=10, color="b")
       self.ax.add_artist(ax_base)
       self.ax.add_artist(ay_base)
       self.ax.add_artist(az_base)
@@ -357,20 +343,50 @@ class ForwardKinematicsOneSegment():
       self.fig.tight_layout() # fits the plot to window size
 
 """MAIN"""
-myclass = ForwardKinematicsOneSegment(l1min=0.075, l1max=0.125, l2min=0.15, l2max=0.25, d=0.01, n=5)
-myclass.reset(l11=0.1, l12=0.1, l13=0.1, l21=0.2, l22=0.2, l23=0.2)
-#myclass.step(-0.001, 0.0, 0.0, 0.0, 0.0, 0.0)
-#print("tip1", myclass.tip_vec1)
-#print("tip2", myclass.tip_vec2)
-#myclass.render()
-#mypause(2)
+env = ForwardKinematicsTwoSegments(l1min=0.075, l1max=0.125, l2min=0.15, l2max=0.25, d=0.01, n=5)
+env.reset(l11=0.1, l12=0.1, l13=0.1, l21=0.2, l22=0.2, l23=0.2)
+step_size = 0.001
+steps = 15
+pause = 0.0001
+tipold = env.tip_vec2; tipnew = env.tip_vec2
+dist = []
+action = [-0.001, 0.0, 0.001]
+#for i in range(100000):
+#   tipold = tipnew
+#   tipnew = env.tip_vec2
+##   env.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size),
+##            np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
+#   env.step(np.random.choice(action), np.random.choice(action), np.random.choice(action),
+#            np.random.choice(action), np.random.choice(action), np.random.choice(action))
+#   dist.append(np.linalg.norm(tipnew-tipold))
 #
-for i  in range(50):
-   step_size = 0.001
-#   myclass.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size),
-#                np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
-   myclass.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size),
-                np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
-#   myclass.step(0.0, 0.0, 0.0, 0.001, 0.0, 0.0)
-#   print(myclass.lenghts1, myclass.lenghts2)
-   myclass.render(pause=0.25, frame="bishop")
+#print("{:.5f}".format(np.array(dist).mean()))
+"""used for demo"""
+for i  in range(3*steps):
+   env.step(0.001, 0.0, 0.0, 0.0, 0.0, 0.0)
+   env.render(pause=pause, frame="bishop")
+for i  in range(5*steps):
+   env.step(0.0, 0.0, 0.0, 0.001, 0.0, 0.0)
+   env.render(pause=pause, frame="bishop")
+for i  in range(steps):
+   env.step(0.0, 0.0, 0.0, -0.001, 0.0, 0.0)
+   env.render(pause=pause, frame="bishop")
+#
+#steps = 100
+#phi1 = np.linspace(env.phi1, env.phi1+2*np.pi, steps)
+#
+#for i in range(steps):
+#   l1new, l2new, l3new = env.arc_params_to_tendon_lenghts(env.kappa1, phi1[i], env.seg_len1)
+#   dl11 = l1new-env.l11; dl12 = l2new-env.l12; dl13 = l3new-env.l13;
+##   l21, l22, l23 = env.arc_params_to_tendon_lenghts(env.kappa2, env.phi2, env.seg_len2)
+#   env.step(dl11, dl12, dl13, 0, 0, 0)
+#   env.render(pause=pause, frame="bishop")
+"""used for demo"""
+#phi2 = np.linspace(env.phi2, env.phi2+2*np.pi, steps)
+#
+#for i in range(steps-1):
+#   dl21, dl22, dl23 = env.arc_params_to_tendon_lenghts(env.kappa2, phi2[i+1], env.seg_len2)
+#   dl21new = dl21-env.dl21; dl22new = dl22-env.dl22; dl23new = dl23-env.dl23;
+##   l21, l22, l23 = env.arc_params_to_tendon_lenghts(env.kappa2, env.phi2, env.seg_len2)
+#   env.step(0, 0, 0, dl21new, dl22new, dl23new)
+#   env.render(pause=pause, frame="bishop", save_frames=True)

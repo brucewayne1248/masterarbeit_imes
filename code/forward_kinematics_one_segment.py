@@ -4,18 +4,16 @@ from math import sqrt, asin, atan2, cos, sin
 import matplotlib
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-#import mpl_toolkits.mplot3d.axes3d as p3
-# https://stackoverflow.com/questions/22867620/putting-arrowheads-on-vectors-in-matplotlibs-3d-plot?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
 from matplotlib.patches import FancyArrowPatch # used to create Arrow3D
 from mpl_toolkits.mplot3d import proj3d # used to get 3D arrows to work
 # video file
 # import cv2 by deleting kinetic python path from sys (else error)
-import sys
-try:
-   sys.path.remove("/opt/ros/kinetic/lib/python2.7/dist-packages")
-except :
-   print("kinetic path already deleted")
-import cv2
+#import sys
+#try:
+#   sys.path.remove("/opt/ros/kinetic/lib/python2.7/dist-packages")
+#except :
+#   print("kinetic path already deleted")
+#import cv2
 
 class Arrow3D(FancyArrowPatch):
     def __init__(self, xs, ys, zs, *args, **kwargs):
@@ -78,7 +76,7 @@ class ForwardKinematicsOneSegment():
       self.fig = None
       self.ax = None
       self.scatter = None
-      self.arrow_len = 0.025 # arrow length of coordinate frames
+      self.arrow_len = 0.03 # arrow length of coordinate frames
       self.frame = 1000
       self.fig_name = None
 
@@ -130,7 +128,7 @@ class ForwardKinematicsOneSegment():
 
    def _seg_length(self):
       """ returns the current segment length of primary backbone [m] """
-      if self.l1 == self.l2 == self.l3:
+      if self.l1 == self.l2 == self.l3 or self.expr == 0.0:
          return self.lsum / 3
       else:
          return self.n*self.d*self.lsum / (sqrt(self.expr)) * asin(sqrt(self.expr)/(3*self.n*self.d))
@@ -175,6 +173,7 @@ class ForwardKinematicsOneSegment():
       return points
 
    def arc_params_to_tendon_lenghts(self, kappa, phi, s):
+      """ converts configuration space to actuator space of the robot """
       if kappa == 0:
          l1 = s
          l2 = s
@@ -183,11 +182,11 @@ class ForwardKinematicsOneSegment():
          l1 = 2*self.n*sin(kappa*s/(2*self.n))*(1/kappa-self.d*sin(phi))
          l2 = 2*self.n*sin(kappa*s/(2*self.n))*(1/kappa+self.d*sin(np.pi/3+phi))
          l3 = 2*self.n*sin(kappa*s/(2*self.n))*(1/kappa-self.d*cos(np.pi/6+phi))
-#      return np.array([l1, l2, l3])
       return l1, l2, l3
 
    def render(self, pause=0.05, frame="bishop", save_frames=False):
-      """ renders the 3d plot of the robot's arc, pause (float) determines how long each frame is shown """
+      """ renders the 3d plot of the robot's arc, pause (float) determines how long each frame is shown
+          when save frames is set to True each frame of the plot is saved in an png file"""
       if self.fig == None:
          self.init_render()
 
@@ -227,7 +226,6 @@ class ForwardKinematicsOneSegment():
       self.ax.add_artist(anormal)
       self.ax.add_artist(abinormal)
       mypause(pause)
-      self.fig.add_axes
 
       if save_frames == True:
          self.fig.savefig("figures/frame"+str(self.frame)[1:]+".png")
@@ -246,9 +244,12 @@ class ForwardKinematicsOneSegment():
       self.ax.set_ylabel("Y")
       self.ax.set_zlabel("Z")
       # add coordinate 3 arrows of base frame, have to be defined once!
-      ax_base = Arrow3D([0.0, self.arrow_len], [0.0, 0.0], [0.0, 0.0], arrowstyle="-|>", lw=1, mutation_scale=10, color="r")
-      ay_base = Arrow3D([0.0, 0.0], [0.0, self.arrow_len], [0.0, 0.0], arrowstyle="-|>", lw=1, mutation_scale=10, color="g")
-      az_base = Arrow3D([0.0, 0.0], [0.0, 0.0], [0.0, self.arrow_len], arrowstyle="-|>", lw=1, mutation_scale=10, color="b")
+      ax_base = Arrow3D([0.0, self.arrow_len], [0.0, 0.0], [0.0, 0.0],
+                        arrowstyle="-|>", lw=1, mutation_scale=10, color="r")
+      ay_base = Arrow3D([0.0, 0.0], [0.0, self.arrow_len], [0.0, 0.0],
+                        arrowstyle="-|>", lw=1, mutation_scale=10, color="g")
+      az_base = Arrow3D([0.0, 0.0], [0.0, 0.0], [0.0, self.arrow_len],
+                        arrowstyle="-|>", lw=1, mutation_scale=10, color="b")
       self.ax.add_artist(ax_base)
       self.ax.add_artist(ay_base)
       self.ax.add_artist(az_base)
@@ -256,11 +257,23 @@ class ForwardKinematicsOneSegment():
       self.fig.tight_layout() # fits the plot to window size
 
 """MAIN"""
-myclass = ForwardKinematicsOneSegment(lmin=0.075, lmax=0.125, d=0.01, n=5)
-myclass.reset(l1=0.1, l2=0.1, l3=0.1)
+env = ForwardKinematicsOneSegment(lmin=0.075, lmax=0.125, d=0.01, n=5)
+env.reset(l1=0.1, l2=0.1, l3=0.1)
 
-for i  in range(20):
-   myclass.render(pause=0.25, frame="bishop")
+for i  in range(15):
+   env.render(pause=0.05, frame="bishop")
    step_size = 0.01
-#   myclass.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
-   myclass.step(0.001, 0.0, 0.0)
+#   env.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
+   env.step(0.001, 0.0, 0.0)
+steps = 100
+phi = np.linspace(env.phi, env.phi+2*np.pi, steps)
+
+for i in range(steps):
+   l1, l2, l3 = env.arc_params_to_tendon_lenghts(env.kappa, phi[i], env.seg_len)
+   env.reset(l1, l2, l3)
+   env.render(pause=0.05)
+
+
+
+
+
