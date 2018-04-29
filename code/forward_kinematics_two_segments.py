@@ -42,35 +42,30 @@ class ForwardKinematicsTwoSegments():
    n              number of units within one segment
    verbose        boolean for displaying values during calculations
    """
+   r_static = -1
+   r_goal = 10
+   r_crash = -10
+   gamma = 0.95 # discount factor
+
    def __init__(self, l1min, l1max, l2min, l2max, d, n, verbose=False):
       self.d = d
       self.n = n
       self.l1min = l1min; self.l1max = l1max
       self.l2min = l2min; self.l2max = l2max
       self.verbose = verbose # used to print further information when stepping or resetting environment
-      # define variables to be used after environment is reset
+      # general variables
       self.base = np.array([0.0, 0.0, 0.0, 1]) # base vector
       self.l11 = None; self.l12 = None; self.l13 = None; # absolute&effective segment 1 tendon lengths
       self.l21 = None; self.l22 = None; self.l23 = None; # absolute segment 2 tendon lengths
       self.dl21 = None; self.dl22 = None; self.dl23 = None; # effective  segment 2 tendon lengths (needed for kappa2, phi2, seg_len2)
-      self.lenghts1 = None # array containing tendon lenghts [l11, l12, l13]
-      self.lenghts2 = None # array containing tendon lenghts [l21, l22, l23]
-      # expressions used to shorten calculations to come
-      self.lsum1 = None # sum of segment 1 tendon lengths l11+l12+l13
-      self.lsum2 = None # sum of effective segment 2 tendon lengths dl21+dl22+dl23
-      self.expr1 = None # useful expression for l11²+l12²+l13²-l11*l12-l11*l21-l12*l13
-      self.expr2 = None # useful expression for dl21²+dl22²+dl23²-dl21*dl22-dl21*dl21-dl22*dl23
-      # further variables defining continuum robot's features
-      self.center_len1 = None # virtual length of segment 1 center tendon
-      self.center_len2 = None # virtual length of segment 2 center tendon
+      self.goal = None # goal coordinates [x, y, z] in [m]
+      # configuration space variables
       self.kappa1 = None # segment 1 curvature [m^(-1)]
       self.kappa2 = None # segment 2 curvature [m^(-1)]
       self.phi1 = None # segment 1 angle rotating arc out of x-z base plane [rad]
       self.phi2 = None # segment 2 angle [rad]
       self.seg_len1 = None # segment 1 total arc length [m]
       self.seg_len2 = None # segment 2 total arc length [m]
-      self.configuration_space1 = None # segment 1 array containing [kappa1, phi1, seg_len1]
-      self.configuration_space2 = None # segment 2 array containing [kappa2, phi2, seg_len2]
       # transformation matrices
       self.T01_frenet = None # frenet transformation matrix from base to segment 1 tip
       self.T12_frenet = None # frenet transformation matrix from segment 1 tip to segment 2 tip
@@ -98,6 +93,8 @@ class ForwardKinematicsTwoSegments():
       self.ax = None
       self.frame = 1000 # used to name frames -> frame000, frame001, etc
       self.arrow_len = 0.03
+      # variables needed for episodic reinforcement learning
+      self.done = False
 
    def reset(self, l11=None, l12=None, l13=None, l21=None, l22=None, l23=None):
       """ resets the tendon lengths and updates other variables accordingly """
@@ -108,13 +105,32 @@ class ForwardKinematicsTwoSegments():
       self.l22 = np.random.uniform(self.l2min, self.l2max) if l22 == None else l22
       self.l23 = np.random.uniform(self.l2min, self.l2max) if l23 == None else l23
       # after resetting tendon lengths, variables need to be updated
+      self.goal = self.get_goal()
+      self.done = False
       self.update_variables()
+
+   def get_goal(self):
+      """ returns a random point in the workspace of the robot [x, y, z] in [m]"""
+      l11 = np.random.uniform(self.l1min, self.l1max)
+      l12 = np.random.uniform(self.l1min, self.l1max)
+      l13 = np.random.uniform(self.l1min, self.l1max)
+      l21 = np.random.uniform(self.l2min, self.l2max)
+      l22 = np.random.uniform(self.l2min, self.l2max)
+      l23 = np.random.uniform(self.l2min, self.l2max)
+      dl21 = l21-l11; dl22 = l22-l12; dl23 = l23-l13
+      kappa1, phi1, seg_len1 = self.configuration_space(l11, l12, l13, self.d, self.n)
+      kappa2, phi2, seg_len2 = self.configuration_space(dl21, dl22, dl23, self.d, self.n)
+      T01 = self.transformation_matrix_bishop(kappa1, phi1, seg_len1)
+      T12 = self.transformation_matrix_bishop(kappa2, phi2, seg_len2)
+      T02 = np.matmul(T01, T12)
+      return np.matmul(T02, self.base)[0:3]
 
    def step(self, delta_l11, delta_l12, delta_l13, delta_l21, delta_l22, delta_l23):
       """ incrementally changes the tendon lengths and updates variables """
       self.l11 += delta_l11; self.l12 += delta_l12; self.l13 += delta_l13
       self.l21 += delta_l11; self.l22 += delta_l12; self.l23 += delta_l13
       self.l21 += delta_l21; self.l22 += delta_l22; self.l23 += delta_l23
+      # check that all tendon lenghts are within limit
       self.l11 = self.l1min if self.l11 < self.l1min else self.l11
       self.l12 = self.l1min if self.l12 < self.l1min else self.l12
       self.l13 = self.l1min if self.l13 < self.l1min else self.l13
@@ -127,32 +143,17 @@ class ForwardKinematicsTwoSegments():
       self.l21 = self.l2max if self.l21 > self.l2max else self.l21
       self.l22 = self.l2max if self.l22 > self.l2max else self.l22
       self.l23 = self.l2max if self.l23 > self.l2max else self.l23
+      old_tip_vec = self.tip_vec2 # used for potential reward
       self.update_variables()
+      new_tip_vec = self.tip_vec2 # used for potential reward
+      reward = self.r_static
+      return reward
 
    def update_variables(self):
       """ updates all necessary variables after resetting or changing tendon lengths """
       self.dl21 = self.l21-self.l11; self.dl22 = self.l22-self.l12; self.dl23 = self.l23-self.l13;
-      self.lenghts1 = np.array([self.l11, self.l12, self.l13])
-      self.lenghts2 = np.array([self.l21, self.l22, self.l23])
-      self.lsum1 = self.l11+self.l12+self.l13
-      self.lsum2 = self.dl21+self.dl22+self.dl23
-      self.expr1 = self.l11**2+self.l12**2+self.l13**2-self.l11*self.l12-self.l11*self.l13-self.l12*self.l13
-      self.expr2 = self.dl21**2+self.dl22**2+self.dl23**2-self.dl21*self.dl22-self.dl21*self.dl23-self.dl22*self.dl23
-      # in rare cases expr turns out to be infinitely small negative number ~ -0.0
-      # due to floating point operation -> in these cases expr has to be set to 0.0
-      if self.expr1 > -1e-17 and self.expr1 < 0.0:
-         self.expr1 = 0.0
-      if self.expr2 > -1e-17 and self.expr2 < 0.0:
-         self.expr2 = 0.0
-      self.center_len1 = self.lsum1 / 3
-      self.center_len2 = self.lsum2 / 3
-      self.kappa1 = 2*sqrt(self.expr1) / (self.d*self.lsum1)
-      self.kappa2 = 2*sqrt(self.expr2) / (self.d*self.lsum2)
-      self.phi1 = atan2(sqrt(3)*(self.l12+self.l13-2*self.l11), 3*(self.l12-self.l13))
-      self.phi2 = atan2(sqrt(3)*(self.dl22+self.dl23-2*self.dl21), 3*(self.dl22-self.dl23))
-      self.seg_len1, self.seg_len2 = self.get_seg_lengths()
-      self.configuration_space1 = np.array([self.kappa1, self.phi1, self.seg_len1])
-      self.configuration_space2 = np.array([self.kappa2, self.phi2, self.seg_len2])
+      self.kappa1, self.phi1, self.seg_len1 = self.configuration_space(self.l11, self.l12, self.l13, self.d, self.n)
+      self.kappa2, self.phi2, self.seg_len2 = self.configuration_space(self.dl21, self.dl22, self.dl23, self.d, self.n)
       # aquire transformation matrices and tips for segment 1 and 2
       self.T01_bishop = self.transformation_matrix_bishop(self.kappa1, self.phi1, self.seg_len1)
       self.T12_bishop = self.transformation_matrix_bishop(self.kappa2, self.phi2, self.seg_len2)
@@ -162,20 +163,38 @@ class ForwardKinematicsTwoSegments():
       self.T02_frenet = np.matmul(self.T01_frenet, self.T12_frenet)
       self.tip_vec1 = np.matmul(self.T01_bishop, self.base)[0:3]
       self.tip_vec2 = np.matmul(self.T02_bishop, self.base)[0:3]
-      # define frenet and bishop frames
+      # Frenet frames
       self.normal_vec_frenet1 = self.T01_frenet[0:3, 0]
       self.binormal_vec_frenet1 = self.T01_frenet[0:3, 1]
       self.tangent_vec_frenet1 = self.T01_frenet[0:3, 2]
       self.normal_vec_frenet2 = self.T02_frenet[0:3, 0]
       self.binormal_vec_frenet2 = self.T02_frenet[0:3, 1]
       self.tangent_vec_frenet2 = self.T02_frenet[0:3, 2]
-
+      # Bishop frames
       self.normal_vec_bishop1 = self.T01_bishop[0:3, 0]
       self.binormal_vec_bishop1 = self.T01_bishop[0:3, 1]
       self.tangent_vec_bishop1 = self.T01_bishop[0:3, 2]
       self.normal_vec_bishop2 = self.T02_bishop[0:3, 0]
       self.binormal_vec_bishop2 = self.T02_bishop[0:3, 1]
       self.tangent_vec_bishop2 = self.T02_bishop[0:3, 2]
+
+   def configuration_space(self, l1, l2, l3, d, n):
+      """ returns the configuration parameters kappa, phi, seg_len of one segment """
+      # useful expressions
+      lsum = l1+l2+l3
+      expr = l1**2+l2**2+l3**2-l1*l2-l1*l3-l2*l3
+      # in rare cases expr = -0.00000000002 when l1~l2~l3 due to floating point operations
+      # in these cases expr has to be set to 0.0
+      if expr > -1e-17 and expr < 0.0:
+         expr = 0.0
+      kappa = 2*sqrt(expr) / (d*lsum)
+      phi = atan2(sqrt(3)*(l2+l3-2*l1), 3*(l2-l3))
+      # calculate total segment length
+      if l1 == l2 == l3 or expr == 0.0: # handling the singularity
+         seg_len = lsum / 3
+      else:
+         seg_len = n*d*lsum / sqrt(expr) * asin(sqrt(expr)/(3*n*d))
+      return kappa, phi, seg_len
 
    def transformation_matrix_frenet(self, kappa, phi, s):
       """ returns a 4x4 SE3 frenet transformation matrix """
@@ -207,32 +226,17 @@ class ForwardKinematicsTwoSegments():
                           [-cos(phi)*sin(kappa*s), -sin(phi)*sin(kappa*s), cos(kappa*s), sin(kappa*s)/kappa],
                           [0, 0, 0, 1]])
 
-   def get_seg_lengths(self):
-      """ returns the current segment lengths of primary backbone [m] """
-      if self.l11 == self.l12 == self.l13 or self.expr1 == 0:
-         seg_len1 = self.lsum1 / 3
-      else:
-         seg_len1 = self.n*self.d*self.lsum1 / (sqrt(self.expr1)) * asin(sqrt(self.expr1)/(3*self.n*self.d))
-      if self.dl21 == self.dl22 == self.dl23 or self.expr2 == 0:
-         seg_len2 = self.lsum2 / 3
-      else:
-         seg_len2 = self.n*self.d*self.lsum2 / (sqrt(self.expr2)) * asin(sqrt(self.expr2)/(3*self.n*self.d))
-      return seg_len1, seg_len2
-
    def get_points_on_arc(self, num_points):
       """ returns np.arrays [num_points, 3] arc points [x(s), y(s), z(s)] [m] """
       points1 = np.zeros((num_points, 3)) # points placeholder for segment 1
       points2 = np.zeros((num_points, 3)) # points placeholder for segment 2
       s1 = np.linspace(0.0, self.seg_len1, num_points) # variable arc length 1
       s2 = np.linspace(0.0, self.seg_len2, num_points) # variable arc length 2
-
       for i in range(num_points):
          points1[i] = np.matmul(self.transformation_matrix_bishop(self.kappa1, self.phi1, s1[i]), self.base)[0:3]
-
       for i in range(num_points):
          T02_s = np.matmul(self.T01_bishop, self.transformation_matrix_bishop(self.kappa2, self.phi2, s2[i]))
          points2[i] = np.matmul(T02_s, self.base)[0:3]
-
       return points1, points2
 
    def arc_params_to_tendon_lenghts(self, kappa, phi, s):
@@ -252,11 +256,10 @@ class ForwardKinematicsTwoSegments():
       points1, points2 = self.get_points_on_arc(num_points=100)
 
       while self.ax.lines:
-         self.ax.lines.pop() # make sure only current arc of robot is plotted
-                             # since every ax.plot adds one line to ax
-
+         self.ax.lines.pop() # delete previous plots
       self.ax.plot(points1[:,0], points1[:,1], points1[:,2], label="Segment 1", c="black", linewidth=3)
       self.ax.plot(points2[:,0], points2[:,1], points2[:,2], label="Segment 2", c="grey", linewidth=2)
+      self.ax.plot([self.goal[0]], [self.goal[1]], [self.goal[2]], label="Goal", c="lime", marker="*", markersize=15)
       self.ax.legend() # display legend
 
       if frame == "bishop":
@@ -276,8 +279,7 @@ class ForwardKinematicsTwoSegments():
 
       # add dynamic coordinate frenet frame of segment 1 tip
       while len(self.ax.artists) > 3:
-         self.ax.artists.pop() # make sure at every iteration that the arrows of the base frame are always included in the plot
-                               # and only current coordinate frame of frenet frame is included which will be added with the following lines
+         self.ax.artists.pop() # delete previous arrows, except base frame
       atangent1 = Arrow3D([self.tip_vec1[0], self.tip_vec1[0]+self.arrow_len*tangent_vec1[0]],
                           [self.tip_vec1[1], self.tip_vec1[1]+self.arrow_len*tangent_vec1[1]],
                           [self.tip_vec1[2], self.tip_vec1[2]+self.arrow_len*tangent_vec1[2]],
@@ -309,9 +311,14 @@ class ForwardKinematicsTwoSegments():
       self.ax.add_artist(atangent2)
       self.ax.add_artist(anormal2)
       self.ax.add_artist(abinormal2)
-      # pause video without losing focus of current window
-      mypause(pause)
-      # save frames of plot
+#      goal_vec = (self.goal-self.tip_vec2)/np.linalg.norm(self.goal-self.tip_vec2)
+#      agoal = Arrow3D([self.tip_vec2[0], self.tip_vec2[0]+self.arrow_len*goal_vec[0]],
+#                      [self.tip_vec2[1], self.tip_vec2[1]+self.arrow_len*goal_vec[1]],
+#                      [self.tip_vec2[2], self.tip_vec2[2]+self.arrow_len*goal_vec[2]],
+#                      arrowstyle="fancy", lw=0.5, mutation_scale=15, color="magenta")
+#      self.ax.add_artist(agoal)
+      mypause(pause) # pause video without losing focus of current window
+      # save frames of plot if asked
       if save_frames == True:
          filename = "figures/frame"+str(self.frame)[1:]+".png"
          self.fig.savefig(filename)
@@ -319,8 +326,8 @@ class ForwardKinematicsTwoSegments():
 
    def init_render(self):
       """ sets up 3D plot """
-      plt.ion() # interactive plot mode, panning, zoomingenabled
-      self.fig = plt.figure(figsize=(9,7))
+      plt.ion() # interactive plot mode, panning, zooming enabled
+      self.fig = plt.figure(figsize=(9,7)) # create figure object
       self.ax = self.fig.add_subplot(111, projection="3d") # attach z-axis to plot
       # set axe limits and labels
       self.ax.set_xlim([-self.l1max, self.l1max])
@@ -347,31 +354,35 @@ env = ForwardKinematicsTwoSegments(l1min=0.075, l1max=0.125, l2min=0.15, l2max=0
 env.reset(l11=0.1, l12=0.1, l13=0.1, l21=0.2, l22=0.2, l23=0.2)
 step_size = 0.001
 steps = 15
-pause = 0.0001
+pause = 0.001
 tipold = env.tip_vec2; tipnew = env.tip_vec2
 dist = []
 action = [-0.001, 0.0, 0.001]
-#for i in range(100000):
-#   tipold = tipnew
-#   tipnew = env.tip_vec2
-##   env.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size),
-##            np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
-#   env.step(np.random.choice(action), np.random.choice(action), np.random.choice(action),
-#            np.random.choice(action), np.random.choice(action), np.random.choice(action))
+for i in range(10000):
+   tipold= tipnew
+   tipnew = env.tip_vec2
+
+   #   env.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size),
+#            np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
+   env.step(np.random.choice(action), np.random.choice(action), np.random.choice(action),
+            np.random.choice(action), np.random.choice(action), np.random.choice(action))
+   env.render()
 #   dist.append(np.linalg.norm(tipnew-tipold))
-#
+
+
+
 #print("{:.5f}".format(np.array(dist).mean()))
 """used for demo"""
-for i  in range(3*steps):
-   env.step(0.001, 0.0, 0.0, 0.0, 0.0, 0.0)
-   env.render(pause=pause, frame="bishop")
-for i  in range(5*steps):
-   env.step(0.0, 0.0, 0.0, 0.001, 0.0, 0.0)
-   env.render(pause=pause, frame="bishop")
-for i  in range(steps):
-   env.step(0.0, 0.0, 0.0, -0.001, 0.0, 0.0)
-   env.render(pause=pause, frame="bishop")
-#
+#for i  in range(steps):
+#   env.step(0.001, 0.0, 0.0, 0.0, 0.0, 0.0)
+#   env.render(pause=pause, frame="bishop")
+#for i  in range(steps):
+#   env.step(0.0, 0.0, 0.0, 0.001, 0.0, 0.0)
+#   env.render(pause=pause, frame="bishop")
+#for i  in range(steps):
+#   env.step(0.0, 0.0, 0.0, -0.001, 0.0, 0.0)
+#   env.render(pause=pause, frame="bishop")
+##
 #steps = 100
 #phi1 = np.linspace(env.phi1, env.phi1+2*np.pi, steps)
 #
@@ -382,11 +393,3 @@ for i  in range(steps):
 #   env.step(dl11, dl12, dl13, 0, 0, 0)
 #   env.render(pause=pause, frame="bishop")
 """used for demo"""
-#phi2 = np.linspace(env.phi2, env.phi2+2*np.pi, steps)
-#
-#for i in range(steps-1):
-#   dl21, dl22, dl23 = env.arc_params_to_tendon_lenghts(env.kappa2, phi2[i+1], env.seg_len2)
-#   dl21new = dl21-env.dl21; dl22new = dl22-env.dl22; dl23new = dl23-env.dl23;
-##   l21, l22, l23 = env.arc_params_to_tendon_lenghts(env.kappa2, env.phi2, env.seg_len2)
-#   env.step(0, 0, 0, dl21new, dl22new, dl23new)
-#   env.render(pause=pause, frame="bishop", save_frames=True)

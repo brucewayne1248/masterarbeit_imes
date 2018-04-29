@@ -1,0 +1,5 @@
+CREATING NEW CONDA ENVIRONMENT
+conda create --name tf_gym python=3.5 anaconda
+pyglet 1.2.4 (pip)
+gym 0.10.3 (pip)
+pybox2d 2.3.1post2 (channel: kne)
