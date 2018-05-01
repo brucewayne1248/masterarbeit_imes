@@ -2,5 +2,8 @@
 Projektarbeitscheckliste.pdf
 /jour_fixe/studentenrunde
 /code/__pycache__
+/code/model
 
-
+# ignore auxiliary files from jabref
+*.bak
+*.sav

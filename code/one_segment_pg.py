@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 from forward_kinematics_one_segment import ForwardKinematicsOneSegment
 import logging
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -18,10 +19,10 @@ n_states = env.n_states
 n_actions = env.n_actions
 n_action_values = len(env.n_action_values)
 n_outputs = n_actions*n_action_values
-n_neurons_hl1 = 32
-n_neurons_hl2 = 32
+n_neurons_hl1 = 256
+n_neurons_hl2 = 256
 discount = env.gamma
-learning_rate = 1e-2
+learning_rate = 1e-3
 info_step = 50
 global_ep_step = 500
 
@@ -32,7 +33,7 @@ def discount_and_normalize_rewards(r, gamma=0.99):
    running_return = 0
    # Gt = Rt+1 + gamma * Rt+2 + gamma^2 * Rt+3 + ... + gamma^(T-t+1)RT
    for t in reversed(range(len(r))):
-      running_return = r[t] + gamma * running_return
+      running_return = float(r[t]) + gamma * running_return
       discounted_norm_rewards[t] = running_return
 
    # subtract mean and divide by standard deviation / normalize rewards
@@ -78,19 +79,23 @@ with tf.name_scope("Train"):
    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
 restore = False
+train = True
+save_model = True
+render = False
+choose_action_deterministically = False
+covered_distances = []
 with tf.Session() as sess:
    saver = tf.train.Saver()
    if restore == True:
-      saver.restore(sess, path=logs_path+"/model.ckpt")
+      saver.restore(sess, save_path=logs_path+"/model.ckpt")
    else:
       sess.run(tf.global_variables_initializer())
 
    logger.debug("HYPERPARAMS\nn_neurons_hl1 = {}\nn_neurons_hl2 = {}\ndiscount = {}\nlearning_rate = {}"
                 .format(n_neurons_hl1, n_neurons_hl2, discount, learning_rate))
    logger.debug("#" * 50)
-   logger.debug("EP\treward\tsteps\tinfo")
+   logger.debug("EP\treward\tsteps\td_start\td_end\tcovered\tinfo")
    state = env.reset(l1=0.1, l2=0.1, l3=0.1)
-   render = False
 
    episode_states = []
    episode_actions1 = []
@@ -100,7 +105,7 @@ with tf.Session() as sess:
 
    reward_sum = 0
    episode = 0
-   max_episodes = 10000
+   max_episodes = 20000
    step = 0
    while episode < max_episodes:
       step += 1
@@ -117,6 +122,10 @@ with tf.Session() as sess:
       action1 = np.random.choice(range(len(action_probs1.ravel())), p=action_probs1.ravel()) - 1
       action2 = np.random.choice(range(len(action_probs2.ravel())), p=action_probs2.ravel()) - 1
       action3 = np.random.choice(range(len(action_probs3.ravel())), p=action_probs3.ravel()) - 1
+      if choose_action_deterministically == True:
+         action1 = np.argmax(action_probs1) - 1
+         action2 = np.argmax(action_probs2) - 1
+         action3 = np.argmax(action_probs3) - 1
       # action values: -1, 0, 1 * delta_l -> retract, hold, release tendon
       state_, reward, done, info = env.step(action1*env.delta_l, action2*env.delta_l, action3*env.delta_l)
 
@@ -135,7 +144,10 @@ with tf.Session() as sess:
       if done:
          episode += 1
 
-         logger.debug("{}\t{}\t{}\t{}".format(episode, sum(episode_rewards), len(episode_rewards), info))
+         logger.debug("{}\t{:.1f}\t{}\t{:.4f}\t{:.4f}\t{:.4f}\t{}"
+                      .format(episode, sum(episode_rewards), len(episode_rewards),
+                              env.dist_start, env.dist_end, env.dist_start-env.dist_end, info))
+         covered_distances.append(env.dist_start-env.dist_end)
 
          disc_norm_ep_rewards = discount_and_normalize_rewards(episode_rewards, env.gamma)
          # train
@@ -144,14 +156,15 @@ with tf.Session() as sess:
                       tf_rewards_discounted: disc_norm_ep_rewards}
 #         logits = sess.run(logits, feed_dict={tf_states: episode_states})
 #         print(logits)
-         sess.run(train_op, feed_dict=feed_dict)
+         if train == True:
+            sess.run(train_op, feed_dict=feed_dict)
 
          if episode % info_step == 0:
             print("AVERAGE REWARD EP {}-{}: {}".format(episode-(info_step-1), episode, reward_sum/info_step))
 
             reward_sum = 0
 
-         if episode % global_ep_step == 0:
+         if episode % global_ep_step == 0 and save_model == True:
             saver.save(sess, save_path=logs_path+"/model.ckpt")
 
          # reset lists
@@ -161,4 +174,8 @@ with tf.Session() as sess:
 
          state = env.reset(l1=0.1, l2=0.1, l3=0.1)
 
-
+plt.figure()
+plt.plot(covered_distances)
+plt.xlabel("episodes")
+plt.ylabel("covered distance to goal [m]")
+plt.show()

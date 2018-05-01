@@ -90,14 +90,16 @@ class ForwardKinematicsOneSegment():
       self.n_actuators = 3
       self.n_actions = 3
       self.delta_l = 0.001
-      self.max_steps = 200 # max steps per episode
+      self.max_steps = 100 # max steps per episode
       self.n_action_values = [-self.delta_l, 0.0, self.delta_l]
-      self.r_crash = -self.max_steps
-      self.r_goal = self.max_steps
+      self.r_crash = -float(self.max_steps)
+      self.r_goal = float(self.max_steps)
       self.r_approach = -0.5
       self.r_depart = -1.0
       self.gamma = 0.99
       self.eps = 5e-3 # distance tolerance to reach goal
+      self.dist_start = None
+      self.dist_end = None
 
    def reset(self, l1=None, l2=None, l3=None, l1goal=None, l2goal=None, l3goal=None):
       """ Resets the environment and updates other variables accordingly. Returns state of new episode. """
@@ -107,14 +109,18 @@ class ForwardKinematicsOneSegment():
       # after resetting tendon lengths, variables need to be updated
       self.update_variables()
       # create goal far enough away from tip-vetor
-      self.goal = self.tip_vec
-      while norm(self.goal-self.tip_vec) < 3*self.eps:
-         self.set_goal(l1goal, l2goal, l3goal) # set a new goal for the episode
+      if (l1goal is not None) and (l2goal is not None) and (l3goal is not None):
+         self.set_goal(l1goal, l2goal, l3goal)
+      else:
+         self.goal = self.tip_vec
+         while norm(self.goal-self.tip_vec) < 2*self.eps:
+            self.set_goal(l1goal, l2goal, l3goal) # set a new goal for the episode
       self.state = self.get_state()
       self.reward = 0
       self.info = "Reset the environment"
       self.done = False
       self.info= ""
+      self.dist_start = norm(self.goal-self.tip_vec)
       self.steps = 0
       return self.state
 
@@ -130,9 +136,9 @@ class ForwardKinematicsOneSegment():
 
    def step(self, delta_l1, delta_l2, delta_l3):
       """ incrementally changes the tendon lengths and updates variables """
-      # warn to reset the envinroment in case the episode is done
+      alpha = 0.25
       if self.done == True:
-         self.info = "Environment needs to be reset, episode is done."
+         self.info = "Reset environment, episode is done."
 #         print(self.info)
          return self.state, self.reward, self.done, self.info
       self.steps += 1
@@ -146,10 +152,11 @@ class ForwardKinematicsOneSegment():
       new_tip_vec = self.tip_vec
       new_dist = norm(self.goal-new_tip_vec)
       self.state = self.get_state()
-      if new_dist - old_dist >= 0.0:
-         self.reward = self.r_depart
-      else:
-         self.reward = self.r_approach
+#      if new_dist - old_dist >= 0.0:
+#         self.reward = self.r_depart
+#      else:
+#         self.reward = self.r_approach
+      self.reward = -new_dist**alpha
       self.info = "EPISODE RUNNING @STEP {} DISTANCE: {:.4f}".format(self.steps, new_dist)
       # handling the case that actuator limits are exceeded
       lengths = [self.l1, self.l2, self.l3]
@@ -158,18 +165,21 @@ class ForwardKinematicsOneSegment():
             self.state = self.get_state()
             self.reward = self.r_crash
             self.done = True
-            self.info = "ACTUATOR: l{} = {:.4f} @step {}".format(idx+1, l, self.steps)
+            self.info = "ACTUATOR EXCEEDED: l{} = {:.4f} @step {}".format(idx+1, l, self.steps)
+            self.dist_end = norm(self.goal-self.tip_vec)
             return self.state, self.reward, self.done, self.info
       # handling goal reaching case
       if norm(new_tip_vec-self.goal) < self.eps:
          self.info = "GOAL!!! DISPLACEMENT {:.4f}m @step {}".format(norm(self.goal-self.tip_vec), self.steps)
          self.done = True
-         self.reward += self.r_goal
+         self.reward = self.r_goal
+         self.dist_end = norm(self.goal-self.tip_vec)
          return self.state, self.reward, self.done, self.info
       # handling case when max steps are exceeded
       if self.steps >= self.max_steps:
          self.info = "MAX STEPS {} REACHED, DISTANCE {:.4f}.".format(self.max_steps, norm(self.goal-self.tip_vec))
          self.done = True
+         self.dist_end = norm(self.goal-self.tip_vec)
 
       return self.state, self.reward, self.done, self.info
 
@@ -353,14 +363,14 @@ class ForwardKinematicsOneSegment():
 
 """MAIN"""
 #env = ForwardKinematicsOneSegment(lmin=0.075, lmax=0.125, d=0.01, n=10)
-#state = env.reset(l1=0.1, l2=0.1, l3=0.1, l1goal=0.4, l2goal=0.4, l3goal=0.3)
-###
-#actions = [-0.0001, 0.0, 0.0001]
-#total_episodes = 10000
+#state = env.reset(l1=0.1, l2=0.1, l3=0.1, l1goal=0.12, l2goal=0.12, l3goal=0.12)
+#actions = [-0.001, 0.0, 0.001]
+#total_episodes = 1000
 #episode = 0
 #move_dist = []
+#rewards = []
 #while episode < total_episodes:
-##   state, reward, done, info = env.step(-0.0001, -0.0001, -0.0001)
+##   state, reward, done, info = env.step(-0.001, -0.001, -0.001)
 ##   print(env.configuration_space(env.l1, env.l2, env.l3, env.d, env.n))
 ##   state, reward, done, info = env.step(0.001, 0, 0)
 ##   print(reward)
@@ -368,31 +378,37 @@ class ForwardKinematicsOneSegment():
 #   state, reward, done, info = env.step(np.random.choice(actions), np.random.choice(actions), np.random.choice(actions))
 #   new_tip = env.tip_vec
 #   move_dist.append(norm(new_tip-old_tip))
+#   if not done:
+#      rewards.append(reward)
 #   if done:
 #      episode += 1
-#      env.reset(l1=0.1, l2=0.1, l3=0.1, l1goal=0.4, l2goal=0.4, l3goal=0.3)
+##      env.reset(l1=0.1, l2=0.1, l3=0.1, l1goal=0.4, l2goal=0.4, l3goal=0.3)
+#      env.reset(l1=0.1, l2=0.1, l3=0.1)
+#      if episode % 100 == 0:
+#         print(episode)
 ##   env.render(pause=pause)
 ##   print(env.T01_bishop)
 #
 #print(sum(move_dist)/len(move_dist))
+#print(sum(rewards)/(len(rewards)))
 
 #pause = 0.00001
-#rewards = []
-#infos = []
-#ep_reward = 0
-#env.gamma = 0.9999999
-#for i in range(5):
-#   state, reward, done, info = env.step(0.001, 0.001, 0.001)
-#   print(state)
+##rewards = []
+##infos = []
+##ep_reward = 0
+##env.gamma = 0.9999999
+#for i in range(50):
+#   state, reward, done, info = env.step(-0.001, -0.001, -0.001)
+#   print(reward)
 #   rewards.append(reward)
 #   env.render(pause=pause)
 #for i in range(100):
-#   state, reward, done, info = env.step(-0.001, -0.001, -0.001)
-#   print(state)
+#   state, reward, done, info = env.step(0.001, 0.001, 0.001)
+#   print(reward)
 #   rewards.append(reward)
 #   env.render(pause=pause)
 #   if done:
-#      print(reward)
+#      print(reward, info)
 #      break
 
 #
