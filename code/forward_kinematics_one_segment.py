@@ -17,18 +17,19 @@ from mpl_toolkits.mplot3d import proj3d # used to get 3D arrows to work
 #import cv2
 
 class Arrow3D(FancyArrowPatch):
-    def __init__(self, xs, ys, zs, *args, **kwargs):
-        FancyArrowPatch.__init__(self, (0,0), (0,0), *args, **kwargs)
-        self._verts3d = xs, ys, zs
+   """class used to render 3d arrows"""
+   def __init__(self, xs, ys, zs, *args, **kwargs):
+      FancyArrowPatch.__init__(self, (0,0), (0,0), *args, **kwargs)
+      self._verts3d = xs, ys, zs
 
-    def draw(self, renderer):
-        xs3d, ys3d, zs3d = self._verts3d
-        xs, ys, zs = proj3d.proj_transform(xs3d, ys3d, zs3d, renderer.M)
-        self.set_positions((xs[0],ys[0]),(xs[1],ys[1]))
-        FancyArrowPatch.draw(self, renderer)
+   def draw(self, renderer):
+      xs3d, ys3d, zs3d = self._verts3d
+      xs, ys, zs = proj3d.proj_transform(xs3d, ys3d, zs3d, renderer.M)
+      self.set_positions((xs[0],ys[0]),(xs[1],ys[1]))
+      FancyArrowPatch.draw(self, renderer)
 
 def mypause(interval):
-   """ Pause function to be used in plotting loop to keep plot window in background. """
+   """ Pause function to be used in plotting loop to keep plot window in background and not lose focus at every frame. """
    backend = plt.rcParams['backend']
    if backend in matplotlib.rcsetup.interactive_bk:
       figManager = matplotlib._pylab_helpers.Gcf.get_active()
@@ -49,66 +50,53 @@ class ForwardKinematicsOneSegment():
 
    n:          number of units (spacer discs) within one segment
    """
-   precision_digits = 16 # rounding precision needed for handling the singularity l1=l2=l3
+   precision_digits = 16 # rounding precision needed for handling the singularity at l1=l2=l3
 
    def __init__(self, lmin, lmax, d, n):
       self.lmin = lmin
       self.lmax = lmax
       self.d = d
       self.n = n
-      # define variables to be used after environment is reset
-      self.l1 = None; self.l2 = None; self.l3 = None;
+
+      self.l1 = None; self.l2 = None; self.l3 = None; # tendon lengths
+      self.lengths = None # [l1, l2, l3]
       self.base = np.array([0.0, 0.0, 0.0, 1.0]) # base vector used for transformations
       self.kappa = None # curvature kappa [m^(-1)]
       self.phi = None # angle rotating arc out of x-z plane [rad]
       self.seg_len = None # total arc length [m]
-      self.T01_frenet = None # frenet transformation matrix from base to tip of segment 1
-      self.T01_bishop = None # bishop transformation matrix from base to tip of segment 1
-#      self.configuration_space = None # array containing [kappa, phi, seg_len]
-      self.normal_vec_frenet = None # Frenet normal vector of robot tip
-      self.tangent_vec_frenet = None # Frenet tangent vector of robot tip
-      self.binormal_vec_frenet = None # Frenet binormal vector of robot tip
-      self.normal_vec_bishop = None # Bishop normal vector of robot tip
-      self.tangent_vec_bishop = None # Bishop tangent vector of robot tip
-      self.binormal_vec_bishop = None # Bishop binormal vector of robot tip
+
+      self.T01 = None # transformation matrix either Bishop or Frenet frames
+      self.normal_vec = None # Frenet: pointing towards center point of arc radius # Bishop: aligned with the base frame
+      self.binormal_vec = None # tangent_vec x normal_vec
+      self.tangent_vec = None # tangent vector of arc
       self.tip_vec = None # robot's tip vector [m] [x, y, z]
-      # define plot variables
+
       self.fig = None # fig variable used for plotting
-      self.ax = None # axis variable used for plotting
-      self.scatter = None # used for scatter plotting the goal
-      self.arrow_len = 0.02 # arrow length of coordinate frames
-      self.frame = 1000 # used for naming frames when saving single pictures
+
       # variables needed in episodic reinforcement learning
       self.state = None # state vector containing l1, l2, l3, tip position, and goal position
       self.reward = None # current reward
       self.done = None # indicates that episode is progress or over
-      self.info = None # additional info returned by stepping the environment
-      self.steps = None # actual steps taken per episode
-      self.goal = None # goal to be reached by the robot's tip
+      self.info = None # additional info returned by stepping the environment, indicating goal reached
+      self.steps = None # current step the episode is in
+      self.goal = None # goal to be reached by the robot's tip [x, y, z] [m]
       self.tangent_vec_goal = None # tangent vector of goal position
-      self.n_states = 9
-      self.n_actuators = 3
-      self.n_actions = 3
-      self.delta_l = 0.001
-      self.max_steps = 100 # max steps per episode
-      self.n_action_values = [-self.delta_l, 0.0, self.delta_l]
-      self.r_crash = -float(self.max_steps)
-      self.r_goal = float(self.max_steps)
-      self.r_approach = -0.5
-      self.r_depart = -1.0
-      self.gamma = 0.99
-      self.eps = 5e-3 # distance tolerance to reach goal
-      self.dist_start = None
-      self.dist_end = None
+      self.state_dim = 10
+      self.action_dim = 3 # number of actions per time step
+      self.delta_l = 0.0001
+      self.max_steps = 500 # max steps per episode
+      self.eps = 3e-3 # distance tolerance to reach goal
+      self.dist_start = None # start distance to goal
+      self.dist = None # current distance to goal
 
    def reset(self, l1=None, l2=None, l3=None, l1goal=None, l2goal=None, l3goal=None):
       """ Resets the environment and updates other variables accordingly. Returns state of new episode. """
-      self.l1 = round(np.random.uniform(self.lmin, self.lmax), 3) if l1 == None else l1
-      self.l2 = round(np.random.uniform(self.lmin, self.lmax), 3) if l2 == None else l2
-      self.l3 = round(np.random.uniform(self.lmin, self.lmax), 3) if l3 == None else l3
-      # after resetting tendon lengths, variables need to be updated
-      self.update_variables()
-      # create goal far enough away from tip-vetor
+      self.l1 = np.random.uniform(self.lmin, self.lmax) if l1 == None else l1
+      self.l2 = np.random.uniform(self.lmin, self.lmax) if l2 == None else l2
+      self.l3 = np.random.uniform(self.lmin, self.lmax) if l3 == None else l3
+      # after resetting tendon lengths, workspace needs to be updated
+      self.update_workspace()
+      # create goal with a little distance away from tip-vetor
       if (l1goal is not None) and (l2goal is not None) and (l3goal is not None):
          self.set_goal(l1goal, l2goal, l3goal)
       else:
@@ -117,156 +105,130 @@ class ForwardKinematicsOneSegment():
             self.set_goal(l1goal, l2goal, l3goal) # set a new goal for the episode
       self.state = self.get_state()
       self.reward = 0
-      self.info = "Reset the environment"
+      self.info = "Environment is reset."
       self.done = False
-      self.info= ""
       self.dist_start = norm(self.goal-self.tip_vec)
       self.steps = 0
       return self.state
 
-   def set_goal(self, l1=None, l2=None, l3=None):
-      """ Returns a random point in the workspace of the robot [x, y, z] in [m] and it's tangent vector. """
-      l1 = np.random.uniform(self.lmin, self.lmax) if l1 == None else l1
-      l2 = np.random.uniform(self.lmin, self.lmax) if l2 == None else l2
-      l3 = np.random.uniform(self.lmin, self.lmax) if l3 == None else l3
-      kappa, phi, seg_len = self.configuration_space(l1, l2, l3, self.d, self.n)
-      T01 = self.transformation_matrix_bishop(kappa, phi, seg_len)
+   def set_goal(self, l1goal=None, l2goal=None, l3goal=None):
+      """ Sets the goal to a random point of the robot's workspace [x, y, z] in [m]
+      and sets the tangent vector accordingly."""
+      l1goal = np.random.uniform(self.lmin, self.lmax) if l1goal == None else l1goal
+      l2goal = np.random.uniform(self.lmin, self.lmax) if l2goal == None else l2goal
+      l3goal = np.random.uniform(self.lmin, self.lmax) if l3goal == None else l3goal
+      kappa, phi, seg_len = self.configuration_space(l1goal, l2goal, l3goal)
+      T01 = self.transformation_matrix(kappa, phi, seg_len)
       self.goal = np.matmul(T01, self.base)[0:3]
       self.tangent_vec_goal =  T01[0:3, 2]
 
    def step(self, delta_l1, delta_l2, delta_l3):
-      """ incrementally changes the tendon lengths and updates variables """
-      alpha = 0.25
-      if self.done == True:
-         self.info = "Reset environment, episode is done."
-#         print(self.info)
+      """Steps the environment and returns new state, reward, done, info."""
+      if self.done:
+         self.info = "Reset environment with env.reset(), episode is done."
+         print(self.info)
          return self.state, self.reward, self.done, self.info
       self.steps += 1
-      self.l1 += delta_l1
-      self.l2 += delta_l2
-      self.l3 += delta_l3
-      old_tip_vec = self.tip_vec
-      old_dist = norm(self.goal-old_tip_vec)
-      self.update_variables()
-      # handling regular step
-      new_tip_vec = self.tip_vec
-      new_dist = norm(self.goal-new_tip_vec)
-      self.state = self.get_state()
-#      if new_dist - old_dist >= 0.0:
-#         self.reward = self.r_depart
-#      else:
-#         self.reward = self.r_approach
-      self.reward = -new_dist**alpha
-      self.info = "EPISODE RUNNING @STEP {} DISTANCE: {:.4f}".format(self.steps, new_dist)
-      # handling the case that actuator limits are exceeded
+
+      self.l1 += delta_l1; self.l2 += delta_l2; self.l3 += delta_l3
+      # make sure tendon lengths are within min, max
       lengths = [self.l1, self.l2, self.l3]
-      for idx, l in enumerate(lengths):
-         if round(l, self.precision_digits) < self.lmin or round(l, self.precision_digits) > self.lmax:
-            self.state = self.get_state()
-            self.reward = self.r_crash
-            self.done = True
-            self.info = "ACTUATOR EXCEEDED: l{} = {:.4f} @step {}".format(idx+1, l, self.steps)
-            self.dist_end = norm(self.goal-self.tip_vec)
-            return self.state, self.reward, self.done, self.info
+      for i in range(len(lengths)):
+         if lengths[i] < self.lmin:
+            lengths[i] = self.lmin
+         elif lengths[i] > self.lmax:
+            lengths[i] = self.lmax
+      self.l1 = lengths[0]; self.l2 = lengths[1]; self.l3 = lengths[2]
+
+      old_dist = self.goal-self.tip_vec; self.old_dist = old_dist
+      old_dist_euclid = norm(old_dist); self.old_dist_euclid = old_dist_euclid
+      self.update_workspace()
+      # handling regular step
+      new_dist = self.goal-self.tip_vec; self.new_dist = new_dist
+      new_dist_euclid = norm(new_dist); self.new_dist_euclid = new_dist_euclid
+      self.state = self.get_state()
+#      self.reward = -500*(abs(new_dist[0])-abs(old_dist[0])) \
+#                    -500*(abs(new_dist[1])-abs(old_dist[1])) \
+#                    -500*(abs(new_dist[2])-abs(old_dist[2])) \
+#                    -500*(new_dist_euclid-old_dist_euclid)
+      self.reward = -5000*(new_dist_euclid-old_dist_euclid)
+      self.info = "EPISODE RUNNING @STEP {} DISTANCE: {:5.2f}mm".format(self.steps, 1000*new_dist_euclid)
       # handling goal reaching case
-      if norm(new_tip_vec-self.goal) < self.eps:
-         self.info = "GOAL!!! DISPLACEMENT {:.4f}m @step {}".format(norm(self.goal-self.tip_vec), self.steps)
+      if norm(self.tip_vec-self.goal) < self.eps:
+         self.info = "GOAL!!! DISPLACEMENT {:.2f}mm @step {}".format(1000*norm(self.goal-self.tip_vec), self.steps)
          self.done = True
-         self.reward = self.r_goal
+         self.reward = 0.5*float(self.max_steps)
          self.dist_end = norm(self.goal-self.tip_vec)
          return self.state, self.reward, self.done, self.info
       # handling case when max steps are exceeded
       if self.steps >= self.max_steps:
-         self.info = "MAX STEPS {} REACHED, DISTANCE {:.4f}.".format(self.max_steps, norm(self.goal-self.tip_vec))
-         self.done = True
          self.dist_end = norm(self.goal-self.tip_vec)
+         self.info = "MAX STEPS {} REACHED, DISTANCE {:5.2f}mm COVERED {:5.2f}mm.".format(self.max_steps, 1000*self.dist_end, 1000*(self.dist_start-self.dist_end))
+         self.done = True
 
       return self.state, self.reward, self.done, self.info
 
    def get_state(self):
-      return np.array([self.l1, self.l2, self.l3,
-                       self.tip_vec[0], self.tip_vec[1], self.tip_vec[2],
-                       self.goal[0]-self.tip_vec[0], self.goal[1]-self.tip_vec[1], self.goal[2]-self.tip_vec[2]])
+      return np.array([self.l1, self.l2, self.l3, self.tip_vec[0], self.tip_vec[1], self.tip_vec[2],
+                       self.goal[0], self.goal[1], self.goal[2], norm(self.goal-self.tip_vec)])
 
-   def update_variables(self):
+   def update_workspace(self):
       """ updates all necessary variables after changing tendon lengths """
-      self.kappa, self.phi, self.seg_len = self.configuration_space(self.l1, self.l2, self.l3, self.d, self.n)
-      self.T01_frenet = self.transformation_matrix_frenet(self.kappa, self.phi, self.seg_len)
-      self.T01_bishop = self.transformation_matrix_bishop(self.kappa, self.phi, self.seg_len)
-      self.tip_vec = np.matmul(self.T01_bishop, self.base)[0:3]
-      self.normal_vec_frenet = self.T01_frenet[0:3, 0]
-      self.binormal_vec_frenet = self.T01_frenet[0:3, 1]
-      self.tangent_vec_frenet = self.T01_frenet[0:3, 2]
-      self.normal_vec_bishop = self.T01_bishop[0:3, 0]
-      self.binormal_vec_bishop=  self.T01_bishop[0:3, 1]
-      self.tangent_vec_bishop = self.T01_bishop[0:3, 2]
+      self.lengths = np.array([self.l1, self.l2, self.l3])
+      self.kappa, self.phi, self.seg_len = self.configuration_space(self.l1, self.l2, self.l3)
+      self.T01 = self.transformation_matrix(self.kappa, self.phi, self.seg_len, frame="bishop")
+      self.normal_vec = self.T01[0:3, 0]
+      self.binormal_vec = self.T01[0:3, 1]
+      self.tangent_vec = self.T01[0:3, 2]
+      self.tip_vec = np.matmul(self.T01, self.base)[0:3]
 
-   def configuration_space(self, l1, l2, l3, d, n):
-      """ returns the configuration parameters kappa, phi, seg_len of one segment """
-      # useful expressions
+   def configuration_space(self, l1, l2, l3):
+      # useful expressions to shorten formulas below
       lsum = l1+l2+l3
       expr = l1**2+l2**2+l3**2-l1*l2-l1*l3-l2*l3
       # in rare cases expr ~ +-1e-17 when l1~l2~l3 due to floating point operations
-      # in these cases expr has to be set to 0.0
+      # in these cases expr has to be set to 0.0 in order to handle the singularity
       if round(abs(expr), self.precision_digits) == 0:
          expr = 0.0
-      kappa = 2*sqrt(expr) / (d*lsum)
+      kappa = 2*sqrt(expr) / (self.d*lsum)
       phi = atan2(sqrt(3)*(l2+l3-2*l1), 3*(l2-l3))
       # calculate total segment length
       if l1 == l2 == l3 or expr == 0.0: # handling the singularity
          seg_len = lsum / 3
       else:
-         seg_len = n*d*lsum / sqrt(expr) * asin(sqrt(expr)/(3*n*d))
+         seg_len = self.n*self.d*lsum / sqrt(expr) * asin(sqrt(expr)/(3*self.n*self.d))
       return kappa, phi, seg_len
 
-   def transformation_matrix_frenet(self, kappa, phi, s):
-      """ returns a 4x4 SE3 frenet transformation matrix """
-      if round(kappa, self.precision_digits) == 0.0:
-         # See Design and Kinematic Modeling of Constant Curvature Continuum Robots: A Review
-         # the entries (limits) of the 4th column in case kappa = 0 can be calculated by using L'Hopital's rule
-#         return np.array([[cos(phi)*cos(kappa*s), -sin(phi), cos(phi)*sin(kappa*s), 0],
-#                          [sin(phi)*cos(kappa*s),  cos(phi), sin(phi)*sin(kappa*s), 0],
-#                          [-sin(kappa*s), 0, cos(kappa*s), s],
-#                          [0, 0, 0, 1]])
+   def transformation_matrix(self, kappa, phi, s, frame="bishop"):
+      if round(kappa, self.precision_digits) == 0.0: #handling singularity
          T = np.identity(4)
          T[2, 3] = s
-         return T
       else:
-         return np.array([[cos(phi)*cos(kappa*s), -sin(phi), cos(phi)*sin(kappa*s), cos(phi)*(1-cos(kappa*s))/kappa],
-                          [sin(phi)*cos(kappa*s),  cos(phi), sin(phi)*sin(kappa*s), sin(phi)*(1-cos(kappa*s))/kappa],
-                          [-sin(kappa*s), 0, cos(kappa*s), sin(kappa*s)/kappa],
-                          [0, 0, 0, 1]])
-
-   def transformation_matrix_bishop(self, kappa, phi, s):
-      """ returns a 4x4 SE3 frenet transformation matrix """
-      if round(kappa, self.precision_digits) == 0.0: # take floating point precision into consideration
-         # See Design and Kinematic Modeling of Constant Curvature Continuum Robots: A Review
-         # the entries (limits) of the 4th column in case kappa = 0 can be calculated by using L'Hopital's rule
-#         return np.array([[cos(phi)**2*(cos(kappa*s)-1)+1, sin(phi)*cos(phi)*(cos(kappa*s)-1), cos(phi)*sin(kappa*s), 0],
-#                          [sin(phi)*cos(phi)*(cos(kappa*s)-1), cos(phi)**2*(1-cos(kappa*s))+cos(kappa*s), sin(phi)*sin(kappa*s), 0],
-#                          [-cos(phi)*sin(kappa*s), -sin(phi)*sin(kappa*s), cos(kappa*s), s],
-#                          [0, 0, 0, 1]])
-         T = np.identity(4)
-         T[2, 3] = s
-         return T
-      else:
-         return np.array([[cos(phi)**2*(cos(kappa*s)-1)+1, sin(phi)*cos(phi)*(cos(kappa*s)-1), cos(phi)*sin(kappa*s), cos(phi)*(1-cos(kappa*s))/kappa],
+         if frame == "bishop":
+            T = np.array([[cos(phi)**2*(cos(kappa*s)-1)+1, sin(phi)*cos(phi)*(cos(kappa*s)-1), cos(phi)*sin(kappa*s), cos(phi)*(1-cos(kappa*s))/kappa],
                           [sin(phi)*cos(phi)*(cos(kappa*s)-1), cos(phi)**2*(1-cos(kappa*s))+cos(kappa*s), sin(phi)*sin(kappa*s), sin(phi)*(1-cos(kappa*s))/kappa],
                           [-cos(phi)*sin(kappa*s), -sin(phi)*sin(kappa*s), cos(kappa*s), sin(kappa*s)/kappa],
                           [0, 0, 0, 1]])
+         elif frame == "frenet":
+            T = np.array([[cos(phi)*cos(kappa*s), -sin(phi), cos(phi)*sin(kappa*s), cos(phi)*(1-cos(kappa*s))/kappa],
+                          [sin(phi)*cos(kappa*s),  cos(phi), sin(phi)*sin(kappa*s), sin(phi)*(1-cos(kappa*s))/kappa],
+                          [-sin(kappa*s), 0, cos(kappa*s), sin(kappa*s)/kappa],
+                          [0, 0, 0, 1]])
+         else:
+            raise NotImplementedError('Use frame="bishop" or frame="frenet"')
+      return T
 
-   def get_points_on_arc(self, kappa, num_points):
+   def points_on_arc(self, kappa, num_points):
       """ returns np.array([num_points, 3]) of arc points [x(s), y(s), z(s)] for plot [m] """
       points = np.zeros((num_points, 3))
       s = np.linspace(0, self.seg_len, num_points)
       for i in range(num_points):
-         points[i] = np.matmul(self.transformation_matrix_bishop(self.kappa, self.phi, s[i]),
+         points[i] = np.matmul(self.transformation_matrix(self.kappa, self.phi, s[i]),
                                 np.array([0.0, 0.0, 0.0, 1]))[0:3]
       return points
 
    def arc_params_to_tendon_lenghts(self, kappa, phi, s):
-      """ converts configuration space [kappa, phi, s] to
-          actuator space [l1, l2, l3] of the robot's segment """
+      """ converts configuration space [kappa, phi, s] to actuator space [l1, l2, l3] of the robot's segment """
       if round(kappa, self.precision_digits) == 0:
          l1 = s; l2 = s; l3 = s
       else:
@@ -281,7 +243,7 @@ class ForwardKinematicsOneSegment():
       if self.fig == None:
          self.init_render()
 
-      points = self.get_points_on_arc(self.kappa, 100) # points to be plotted from base to robot's tip
+      points = self.points_on_arc(self.kappa, 100) # points to be plotted from base to robot's tip
 
       while self.ax.lines:
          self.ax.lines.pop() # delete plots of previous frame
@@ -293,14 +255,14 @@ class ForwardKinematicsOneSegment():
       while len(self.ax.artists) > 3:
          self.ax.artists.pop()
       # add current frenet or bishop coordinate frame in plot
+      normal_vec = self.normal_vec
+      binormal_vec = self.binormal_vec
+      tangent_vec = self.tangent_vec
       if frame == "frenet":
-         normal_vec = self.normal_vec_frenet
-         tangent_vec = self.tangent_vec_frenet
-         binormal_vec = self.binormal_vec_frenet
-      elif frame == "bishop":
-         normal_vec = self.normal_vec_bishop
-         tangent_vec = self.tangent_vec_bishop
-         binormal_vec = self.binormal_vec_bishop
+         T = self.transformation_matrix(self.kappa, self.phi, self.seg_len, frame="frenet")
+         normal_vec = T[0:3, 0]
+         binormal_vec = T[0:3, 1]
+         tangent_vec = T[0:3, 2]
 
       anormal = Arrow3D([self.tip_vec[0], self.tip_vec[0]+self.arrow_len*normal_vec[0]],
                         [self.tip_vec[1], self.tip_vec[1]+self.arrow_len*normal_vec[1]],
@@ -317,13 +279,6 @@ class ForwardKinematicsOneSegment():
       self.ax.add_artist(anormal)
       self.ax.add_artist(abinormal)
       self.ax.add_artist(atangent)
-      # vector pointing from robot's tip to goal point
-#      goal_vec = (self.goal-self.tip_vec)/np.linalg.norm(self.goal-self.tip_vec)
-#      agoal = Arrow3D([self.tip_vec[0], self.tip_vec[0]+self.arrow_len*goal_vec[0]],
-#                      [self.tip_vec[1], self.tip_vec[1]+self.arrow_len*goal_vec[1]],
-#                      [self.tip_vec[2], self.tip_vec[2]+self.arrow_len*goal_vec[2]],
-#                      arrowstyle="fancy", lw=0.5, mutation_scale=5, color="magenta")
-#      self.ax.add_artist(agoal)
       # tangent vector indicating orientation of goal point
       atangent_goal = Arrow3D([self.goal[0], self.goal[0]+self.arrow_len*self.tangent_vec_goal[0]],
                               [self.goal[1], self.goal[1]+self.arrow_len*self.tangent_vec_goal[1]],
@@ -333,7 +288,8 @@ class ForwardKinematicsOneSegment():
       mypause(pause) # updates plot without losing focus
       # save frames of plot
       if save_frames == True:
-         self.fig.savefig("figures/frame"+str(self.frame)[1:]+".png")
+         frame = 1000
+         self.fig.savefig("figures/frame"+str(frame)[1:]+".png")
          self.frame += 1
 
    def init_render(self):
@@ -349,6 +305,7 @@ class ForwardKinematicsOneSegment():
       self.ax.set_ylabel("Y")
       self.ax.set_zlabel("Z")
       # add coordinate 3 arrows of base frame, have to be defined once!
+      self.arrow_len = 0.02
       ax_base = Arrow3D([0.0, self.arrow_len], [0.0, 0.0], [0.0, 0.0],
                         arrowstyle="-|>", lw=1, mutation_scale=10, color="r")
       ay_base = Arrow3D([0.0, 0.0], [0.0, self.arrow_len], [0.0, 0.0],
@@ -363,101 +320,48 @@ class ForwardKinematicsOneSegment():
 
 """MAIN"""
 #env = ForwardKinematicsOneSegment(lmin=0.075, lmax=0.125, d=0.01, n=10)
-#state = env.reset(l1=0.1, l2=0.1, l3=0.1, l1goal=0.12, l2goal=0.12, l3goal=0.12)
-#actions = [-0.001, 0.0, 0.001]
-#total_episodes = 1000
+#state = env.reset(0.1, 0.1, 0.1)
+#actions = [-env.delta_l, 0.0, env.delta_l]
+
+"""random move"""
 #episode = 0
-#move_dist = []
-#rewards = []
-#while episode < total_episodes:
-##   state, reward, done, info = env.step(-0.001, -0.001, -0.001)
-##   print(env.configuration_space(env.l1, env.l2, env.l3, env.d, env.n))
-##   state, reward, done, info = env.step(0.001, 0, 0)
-##   print(reward)
-#   old_tip = env.tip_vec
-#   state, reward, done, info = env.step(np.random.choice(actions), np.random.choice(actions), np.random.choice(actions))
-#   new_tip = env.tip_vec
-#   move_dist.append(norm(new_tip-old_tip))
-#   if not done:
-#      rewards.append(reward)
+#max_episodes = 2
+#while episode < max_episodes:
+#   dl1 = np.random.choice(actions); dl2 = np.random.choice(actions); dl3 = np.random.choice(actions)
+#   _, _, done, _ = env.step(dl1, dl2, dl3)
+#   env.render()
 #   if done:
 #      episode += 1
-##      env.reset(l1=0.1, l2=0.1, l3=0.1, l1goal=0.4, l2goal=0.4, l3goal=0.3)
-#      env.reset(l1=0.1, l2=0.1, l3=0.1)
-#      if episode % 100 == 0:
-#         print(episode)
-##   env.render(pause=pause)
-##   print(env.T01_bishop)
-#
-#print(sum(move_dist)/len(move_dist))
-#print(sum(rewards)/(len(rewards)))
+#      env.reset()
 
-#pause = 0.00001
-##rewards = []
-##infos = []
-##ep_reward = 0
-##env.gamma = 0.9999999
-#for i in range(50):
-#   state, reward, done, info = env.step(-0.001, -0.001, -0.001)
-#   print(reward)
+"""linear move, printing rewards"""
+#rewards = []
+#state = env.reset(l1=0.1, l2=0.1, l3=0.1, l1goal=0.12, l2goal=0.12, l3goal=0.12)
+#pause = 0.000001
+#for i in range(5000):
+#   state, reward, done, info = env.step(-env.delta_l, -env.delta_l, -env.delta_l)
+##   dl1 = np.random.choice(actions); dl2 = np.random.choice(actions); dl3 = np.random.choice(actions)
+##   state, reward, done, info = env.step(dl1, dl2, dl3)
+#   if reward == 0:
+#      print(i)
+#   print("distance covered: {:5.1f}mm, reward: {:.2f}".format(-1000*(env.new_dist_euclid-env.old_dist_euclid), reward), end=" ")
+#   if -(env.new_dist_euclid-env.old_dist_euclid) * reward < 0.0:
+#      print("WRONG")
+#   else: print("")
 #   rewards.append(reward)
 #   env.render(pause=pause)
-#for i in range(100):
-#   state, reward, done, info = env.step(0.001, 0.001, 0.001)
-#   print(reward)
+#for i in range(20):
+#   state, reward, done, info = env.step(env.delta_l, env.delta_l, env.delta_l)
+##   dl1 = np.random.choice(actions); dl2 = np.random.choice(actions); dl3 = np.random.choice(actions)
+##   state, reward, done, info = env.step(dl1, dl2, dl3)
+#
+#   print("distance covered: {:5.1f}mm, reward: {:5.2f}".format(-1000*(env.new_dist_euclid-env.old_dist_euclid), reward), end=" ")
+#   if -(env.new_dist_euclid-env.old_dist_euclid) * reward < 0.0:
+#      print("WRONG")
+#   else: print("")
+#
 #   rewards.append(reward)
 #   env.render(pause=pause)
 #   if done:
 #      print(reward, info)
 #      break
-
-#
-#steps = 100
-#phi = np.linspace(env.phi, env.phi+2*np.pi, steps)
-
-#l1, l2, l3 = env.arc_params_to_tendon_lenghts(env.kappa, phi[0], env.seg_len)
-#print(l1, l2, l3)
-#print(l1, l2, l3)
-#print(env.l1, env.l2, env.l3)
-#for i in range(steps):
-#   l1, l2, l3 = env.arc_params_to_tendon_lenghts(env.kappa, phi[i], env.seg_len)
-##   env.reset(l1, l2, l3)
-#   env.step(l1-env.l1, l2-env.l2, l3-env.l3)
-#   env.render(pause=0.05)
-#   rewards.append(reward)
-#
-#
-#   ep_reward += reward
-#   if done == True:
-##      state = env.reset(0.1, 0.1, 0.1)
-#      rewards.append(ep_reward)
-#
-#      infos.append([episode, info])
-#      ep_reward = 0
-#      episode += 1
-#
-#
-#print(np.mean(np.array(rewards)))
-
-#env.set_goal(l1=0.11, l2=0.11, l3=0.11)
-#while True:
-#   env.render(pause=0.25, frame="bishop")
-#
-#   step_size = 0.001
-##   env.reset()
-##   r = env.step(np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size), np.random.uniform(-step_size, step_size))
-#
-#
-#   state, reward, done, info = env.step(0.001, 0.001, 0.001)
-##   print(env.tip_vec, reward)
-#   if done == True:
-#      env.reset(0.1, 0.1, 0.1)
-#   env.step(0.001, 0.0, 0.0)
-
-#steps = 100
-#phi = np.linspace(env.phi, env.phi+2*np.pi, steps)
-#
-#for i in range(steps):
-#   l1, l2, l3 = env.arc_params_to_tendon_lenghts(env.kappa, phi[i], env.seg_len)
-#   env.reset(l1, l2, l3)
-#   env.render(pause=0.05)
