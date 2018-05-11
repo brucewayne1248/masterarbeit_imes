@@ -6,7 +6,7 @@ import sys
 
 env = ForwardKinematicsOneSegment(0.075, 0.125, 0.01, 10)
 
-version = 100
+version = 8
 model_path = str("./models/model_one_segment_es%d.p" % version)
 log_path = str("./models/model_one_segment_es%d.log" % version)
 #logs_path = "/home/andi/Documents/masterarbeit_imes/code/model"
@@ -24,14 +24,13 @@ action_dim = env.action_dim
 # Handling the script
 restore = True
 demo = False
-save_model = True
-save_model_step = 50
+save_model = False
+save_model_step = 100
 
 if restore:
    h1_size, h2_size, npop, sigma, alpha, model = pickle.load(open(model_path, "rb"))
    print("model restored")
 else:
-   # set hyperparams on your own
    h1_size = 64
    h2_size = 64
    npop = 5
@@ -67,7 +66,7 @@ def get_action(state, model):
 
 def f(model, render=False, jitter_run=False):
    """function that plays one episode and returns total reward"""
-   state = env.reset(0.1, 0.1, 0.1)
+   state = env.reset(0.1, 0.1, 0.1, reset_goal=False)
    total_reward = 0
    steps = 0
    while True:
@@ -101,7 +100,7 @@ if demo:
       print(f(model, render=True))
    sys.exit("demo finished")
 
-total_episodes = 10000
+total_episodes = 10
 average_reward = 0
 for episode in range(total_episodes):
    N = {}
@@ -109,23 +108,34 @@ for episode in range(total_episodes):
       N[key] = np.random.randn(npop, value.shape[0], value.shape[1])
    R = np.zeros(npop)
 
+   state = env.reset(0.1, 0.1, 0.1, reset_goal=True) # set new goal
+#   print(env.goal, "goal after reset")
+
+   best_model = {}
+   best_R = -np.inf
    for traj in range(npop):
       model_jitter = {}
       for key, value in model.items():
          model_jitter[key] = value + sigma*N[key][traj]
       R[traj] = f(model_jitter, jitter_run=True)
-
+      if all(i <= R[traj] for i in R):
+         best_R = R[traj]
+         for key, value in model_jitter.items():
+            best_model[key] = value
+#   print(env.goal, "goal after jitter runs")
    A = (R - np.mean(R)) / np.std(R)
 
-   for key in model:
-      model[key] = model[key] + alpha/(npop*sigma) * np.dot(N[key].transpose(1, 2, 0), A)
+#   for key in model:
+#      model[key] = model[key] + alpha/(npop*sigma) * np.dot(N[key].transpose(1, 2, 0), A)
 
-   cur_reward = f(model)
+   cur_reward = f(best_model)
 
    average_reward = 1/(episode+1) *(average_reward*episode + cur_reward)
    print("iter{:4d}, episode reward: {:4.1f}, average reward: {:4.1f}".format(episode, cur_reward, average_reward))
 
-   if episode % save_model_step == 0 and save_model and episode > 0:
+#   print(R)
+#   print(env.goal, "goal final run with best model")
+   if episode % save_model_step and save_model and episode > 0:
       pickle.dump([h1_size, h2_size, npop, sigma, alpha, model], open(model_path, "wb"))
 
 logger.debug("\n\nmeancovered distance: {}\t"

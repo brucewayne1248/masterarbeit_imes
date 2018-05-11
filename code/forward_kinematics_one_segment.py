@@ -2,11 +2,10 @@ import numpy as np
 from numpy.linalg import norm
 from math import sqrt, asin, atan2, cos, sin
 # libraries needed to render continuum robot
-import matplotlib
+#import matplotlib
 import matplotlib.pyplot as plt
-#from mpl_toolkits.mplot3d import Axes3D
-from matplotlib.patches import FancyArrowPatch # used to create Arrow3D
-from mpl_toolkits.mplot3d import proj3d # used to get 3D arrows to work
+import time
+from plot_utils import Arrow3D, mypause
 # video file
 # import cv2 by deleting kinetic python path from sys (else error)
 #import sys
@@ -15,30 +14,6 @@ from mpl_toolkits.mplot3d import proj3d # used to get 3D arrows to work
 #except :
 #   print("kinetic path already deleted")
 #import cv2
-
-class Arrow3D(FancyArrowPatch):
-   """class used to render 3d arrows"""
-   def __init__(self, xs, ys, zs, *args, **kwargs):
-      FancyArrowPatch.__init__(self, (0,0), (0,0), *args, **kwargs)
-      self._verts3d = xs, ys, zs
-
-   def draw(self, renderer):
-      xs3d, ys3d, zs3d = self._verts3d
-      xs, ys, zs = proj3d.proj_transform(xs3d, ys3d, zs3d, renderer.M)
-      self.set_positions((xs[0],ys[0]),(xs[1],ys[1]))
-      FancyArrowPatch.draw(self, renderer)
-
-def mypause(interval):
-   """ Pause function to be used in plotting loop to keep plot window in background and not lose focus at every frame. """
-   backend = plt.rcParams['backend']
-   if backend in matplotlib.rcsetup.interactive_bk:
-      figManager = matplotlib._pylab_helpers.Gcf.get_active()
-      if figManager is not None:
-         canvas = figManager.canvas
-         if canvas.figure.stale:
-            canvas.draw()
-         canvas.start_event_loop(interval)
-         return
 
 class ForwardKinematicsOneSegment():
    """
@@ -86,10 +61,11 @@ class ForwardKinematicsOneSegment():
       self.delta_l = 0.0001
       self.max_steps = 500 # max steps per episode
       self.eps = 3e-3 # distance tolerance to reach goal
-      self.dist_start = None # start distance to goal
+      self.dist_start = None # start distance to goal of current episode
+      self.dist_end = None # end distance to goal of current episode
       self.dist = None # current distance to goal
 
-   def reset(self, l1=None, l2=None, l3=None, l1goal=None, l2goal=None, l3goal=None):
+   def reset(self, l1=None, l2=None, l3=None, l1goal=None, l2goal=None, l3goal=None, reset_goal=True):
       """ Resets the environment and updates other variables accordingly. Returns state of new episode. """
       self.l1 = np.random.uniform(self.lmin, self.lmax) if l1 == None else l1
       self.l2 = np.random.uniform(self.lmin, self.lmax) if l2 == None else l2
@@ -99,7 +75,7 @@ class ForwardKinematicsOneSegment():
       # create goal with a little distance away from tip-vetor
       if (l1goal is not None) and (l2goal is not None) and (l3goal is not None):
          self.set_goal(l1goal, l2goal, l3goal)
-      else:
+      if reset_goal:
          self.goal = self.tip_vec
          while norm(self.goal-self.tip_vec) < 2*self.eps:
             self.set_goal(l1goal, l2goal, l3goal) # set a new goal for the episode
@@ -143,22 +119,19 @@ class ForwardKinematicsOneSegment():
       old_dist = self.goal-self.tip_vec; self.old_dist = old_dist
       old_dist_euclid = norm(old_dist); self.old_dist_euclid = old_dist_euclid
       self.update_workspace()
-      # handling regular step
       new_dist = self.goal-self.tip_vec; self.new_dist = new_dist
       new_dist_euclid = norm(new_dist); self.new_dist_euclid = new_dist_euclid
+
+      # handling regular step
       self.state = self.get_state()
-#      self.reward = -500*(abs(new_dist[0])-abs(old_dist[0])) \
-#                    -500*(abs(new_dist[1])-abs(old_dist[1])) \
-#                    -500*(abs(new_dist[2])-abs(old_dist[2])) \
-#                    -500*(new_dist_euclid-old_dist_euclid)
-      self.reward = -5000*(new_dist_euclid-old_dist_euclid)
+      self.reward = -100*(new_dist_euclid-old_dist_euclid)/self.dist_start
       self.info = "EPISODE RUNNING @STEP {} DISTANCE: {:5.2f}mm".format(self.steps, 1000*new_dist_euclid)
       # handling goal reaching case
       if norm(self.tip_vec-self.goal) < self.eps:
-         self.info = "GOAL!!! DISPLACEMENT {:.2f}mm @step {}".format(1000*norm(self.goal-self.tip_vec), self.steps)
          self.done = True
          self.reward = 0.5*float(self.max_steps)
          self.dist_end = norm(self.goal-self.tip_vec)
+         self.info = "GOAL!!! DISPLACEMENT {:.2f}mm COVERED {:5.2f} @step {}".format(1000*norm(self.goal-self.tip_vec), 1000*(self.dist_start-self.dist_end), self.steps)
          return self.state, self.reward, self.done, self.info
       # handling case when max steps are exceeded
       if self.steps >= self.max_steps:
@@ -325,41 +298,36 @@ class ForwardKinematicsOneSegment():
 
 """random move"""
 #episode = 0
-#max_episodes = 2
+#max_episodes = 5
 #while episode < max_episodes:
 #   dl1 = np.random.choice(actions); dl2 = np.random.choice(actions); dl3 = np.random.choice(actions)
+#   t = time.time()
 #   _, _, done, _ = env.step(dl1, dl2, dl3)
+#   print("STEP TIME", time.time() - t)
+#   t = time.time()
 #   env.render()
+#   print("RENDER TIME:", time.time()-t)
 #   if done:
+#
 #      episode += 1
 #      env.reset()
 
 """linear move, printing rewards"""
 #rewards = []
-#state = env.reset(l1=0.1, l2=0.1, l3=0.1, l1goal=0.12, l2goal=0.12, l3goal=0.12)
-#pause = 0.000001
-#for i in range(5000):
+#state = env.reset(l1=0.1, l2=0.1, l3=0.1, l1goal=0.105, l2goal=0.105, l3goal=0.105)
+#pause = 0.01
+#for i in range(25):
 #   state, reward, done, info = env.step(-env.delta_l, -env.delta_l, -env.delta_l)
 ##   dl1 = np.random.choice(actions); dl2 = np.random.choice(actions); dl3 = np.random.choice(actions)
 ##   state, reward, done, info = env.step(dl1, dl2, dl3)
-#   if reward == 0:
-#      print(i)
-#   print("distance covered: {:5.1f}mm, reward: {:.2f}".format(-1000*(env.new_dist_euclid-env.old_dist_euclid), reward), end=" ")
-#   if -(env.new_dist_euclid-env.old_dist_euclid) * reward < 0.0:
-#      print("WRONG")
-#   else: print("")
+#   print("Distance covered: {:3.1f}mm, reward: {:6.2f}".format(-1000*(env.new_dist_euclid-env.old_dist_euclid), reward))
 #   rewards.append(reward)
 #   env.render(pause=pause)
-#for i in range(20):
+#for i in range(500):
 #   state, reward, done, info = env.step(env.delta_l, env.delta_l, env.delta_l)
 ##   dl1 = np.random.choice(actions); dl2 = np.random.choice(actions); dl3 = np.random.choice(actions)
 ##   state, reward, done, info = env.step(dl1, dl2, dl3)
-#
-#   print("distance covered: {:5.1f}mm, reward: {:5.2f}".format(-1000*(env.new_dist_euclid-env.old_dist_euclid), reward), end=" ")
-#   if -(env.new_dist_euclid-env.old_dist_euclid) * reward < 0.0:
-#      print("WRONG")
-#   else: print("")
-#
+#   print("Distance covered: {:3.1f}mm, reward: {:6.2f}".format(-1000*(env.new_dist_euclid-env.old_dist_euclid), reward))
 #   rewards.append(reward)
 #   env.render(pause=pause)
 #   if done:

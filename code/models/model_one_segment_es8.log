@@ -1,0 +1,20 @@
+HYPERPARAMS
+version: 8	h1_size: 1024	h2_size: 0	npop: 100	sigma: 0.15	 alpha: 0.03
+ENVIRONMENT
+delta_l: 0.0001	max_steps: 500	goal_eps: 0.003
+
+
+ep	reward	steps	start_d	end_d	covered	info
+0	345.0	247	0.0607	0.0029	0.0578	True
+1	85.6	500	0.1112	0.0160	0.0952	False
+2	346.6	437	0.0883	0.0028	0.0855	True
+3	347.2	211	0.1090	0.0026	0.1064	True
+4	56.9	500	0.1076	0.0463	0.0613	False
+5	344.8	483	0.0579	0.0030	0.0549	True
+6	346.2	384	0.0786	0.0028	0.0758	True
+7	66.8	500	0.0231	0.0077	0.0154	False
+8	347.0	276	0.1009	0.0029	0.0980	True
+9	344.8	465	0.0580	0.0030	0.0551	True
+
+
+meancovered distance: 0.0705313916358968	goals reached: 7/10
